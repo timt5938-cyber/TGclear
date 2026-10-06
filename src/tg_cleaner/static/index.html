@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="design-system" content="ui-ux-pro-max">
+  <title>Telegram Cleaner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+  <!-- Top Application Header -->
+  <header class="app-header flex items-center justify-between">
+    <div class="brand">
+      <div class="brand-icon-box">
+        <svg class="icon icon-lg" viewBox="0 0 24 24">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="m9 12 2 2 4-4"/>
+        </svg>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="brand-title">Telegram Cleaner</span>
+          <span class="brand-badge">v1.0</span>
+        </div>
+        <span class="text-subtle" style="font-size: 0.75rem;">Безопасная очистка и аудит неактивных каналов</span>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <nav class="tabs-nav" role="tablist">
+      <button class="tab-btn active" data-tab="tab-scan" role="tab" aria-selected="true">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        Каналы и чаты
+      </button>
+      <button class="tab-btn" data-tab="tab-history" role="tab" aria-selected="false">
+        <svg class="icon" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+        История и откат
+      </button>
+      <button class="tab-btn" data-tab="tab-whitelist" role="tab" aria-selected="false">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        Белый список
+      </button>
+      <button class="tab-btn" data-tab="tab-backups" role="tab" aria-selected="false">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+          <polyline points="10 9 9 9 8 9"/>
+        </svg>
+        Бэкапы
+      </button>
+    </nav>
+
+    <!-- Header Actions & Auth Status -->
+    <div class="flex items-center gap-3">
+      <div id="authStatusBadge" class="auth-badge cursor-pointer" title="Нажмите для управления аккаунтом">
+        <div id="authDot" class="status-dot disconnected"></div>
+        <span id="authStatusText">Проверка связи...</span>
+      </div>
+
+      <button id="btnHeaderAuth" class="btn btn-secondary btn-sm">
+        <svg class="icon icon-sm" viewBox="0 0 24 24">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+          <circle cx="12" cy="7" r="4"/>
+        </svg>
+        <span id="authBtnLabel">Войти</span>
+      </button>
+
+      <button id="btnHeaderScan" class="btn btn-primary btn-sm">
+        <svg class="icon icon-sm" viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        Сканировать
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-container">
+
+    <!-- ======================================================================
+         TAB 1: Scan & Candidates Table
+         ====================================================================== -->
+    <section id="tab-scan" class="tab-content active">
+
+      <!-- Top Filter Controls Bar -->
+      <div class="card filter-section">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <svg class="icon" viewBox="0 0 24 24">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+            </svg>
+            <h3>Критерии отбора кандидатов на выход</h3>
+          </div>
+          <span class="text-subtle" style="font-size: 0.8rem;">Автоматический пересчет при сдвиге ползунков</span>
+        </div>
+
+        <div class="filter-sliders-grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));">
+          <!-- Slider 1: User Inactive Days -->
+          <div class="slider-container">
+            <div class="slider-label">
+              <span style="font-weight: 500;">Сколько дней я не читал:</span>
+              <div class="flex items-center gap-1">
+                <input type="number" id="numUserInactive" class="input-number" min="0" max="9999" value="60">
+                <span class="text-subtle" style="font-size: 0.8rem;">дн.</span>
+              </div>
+            </div>
+            <input type="range" id="sliderUserInactive" min="0" max="365" value="60">
+            <span class="text-subtle" style="font-size: 0.72rem;">Неактивность пользователя (не читал столько или больше)</span>
+          </div>
+
+          <!-- Slider 2: Dormancy Days -->
+          <div class="slider-container">
+            <div class="slider-label">
+              <span style="font-weight: 500;">Сколько дней без постов:</span>
+              <div class="flex items-center gap-1">
+                <input type="number" id="numDormancyDays" class="input-number" min="0" max="9999" value="90">
+                <span class="text-subtle" style="font-size: 0.8rem;">дн.</span>
+              </div>
+            </div>
+            <input type="range" id="sliderDormancyDays" min="0" max="365" value="90">
+            <span class="text-subtle" style="font-size: 0.72rem;">Нет постов в канале (столько или больше дней без публикаций)</span>
+          </div>
+
+          <!-- Slider 3: Unread Count -->
+          <div class="slider-container">
+            <div class="slider-label">
+              <span style="font-weight: 500;">Непрочитанных сообщений:</span>
+              <div class="flex items-center gap-1">
+                <input type="number" id="numUnreadThreshold" class="input-number" min="0" max="99999" value="200">
+                <span class="text-subtle" style="font-size: 0.8rem;">сообщ.</span>
+              </div>
+            </div>
+            <input type="range" id="sliderUnreadThreshold" min="0" max="2000" step="10" value="200">
+            <span class="text-subtle" style="font-size: 0.72rem;">Порог накопившихся непрочитанных сообщений (столько или больше)</span>
+          </div>
+
+          <!-- Slider 4: Recent Read Protection Days -->
+          <div class="slider-container" style="border: 1px solid var(--border-subtle); background: var(--bg-card); padding: 12px; border-radius: var(--radius-md);">
+            <div class="slider-label">
+              <span style="font-weight: 500; color: var(--accent-emerald);">Не удалять, если читал:</span>
+              <div class="flex items-center gap-1">
+                <input type="number" id="numProtectRecentRead" class="input-number input-number-emerald" min="0" max="365" value="2">
+                <span class="text-subtle" style="font-size: 0.8rem; color: var(--accent-emerald);">дн.</span>
+              </div>
+            </div>
+            <input type="range" id="sliderProtectRecentRead" min="0" max="30" value="2">
+            <span class="text-subtle" style="font-size: 0.72rem;">Если читал канал 2 дня назад или меньше — канал гарантированно НЕ удаляется</span>
+          </div>
+        </div>
+
+        <!-- Telegram Folders Protection Bar -->
+        <div id="foldersSection" style="margin-top: 14px; padding: 12px 16px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);">
+          <div class="flex items-center justify-between" style="margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+            <div class="flex items-center gap-2">
+              <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: var(--accent-indigo);"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span style="font-weight: 500; font-size: 0.88rem;">Папки Telegram (выберите папки, откуда ЗАПРЕЩЕНО удалять):</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" id="btnSelectAllFolders" class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 2px 10px;">Защитить все папки</button>
+              <button type="button" id="btnDeselectAllFolders" class="btn btn-ghost btn-sm" style="font-size: 0.72rem; padding: 2px 10px;">Снять выбор</button>
+            </div>
+          </div>
+          <div id="foldersChipsContainer" class="flex items-center gap-2" style="flex-wrap: wrap;">
+            <span class="text-subtle" style="font-size: 0.8rem;">Загрузка папок Telegram...</span>
+          </div>
+        </div>
+
+        <!-- Toggles & Action -->
+        <div class="filter-toggles-bar">
+          <div class="flex items-center gap-6" style="flex-wrap: wrap;">
+            <!-- Ignore Archive Toggle -->
+            <label class="toggle-wrap" title="Полностью пропускать чаты и каналы из папки Архив">
+              <div class="toggle-switch">
+                <input type="checkbox" id="toggleIgnoreArchived" checked>
+                <span class="toggle-slider"></span>
+              </div>
+              <span class="toggle-label" style="font-weight: 500;">Игнорировать чаты из архива</span>
+            </label>
+
+            <!-- Protect Recent Read Toggle -->
+            <label class="toggle-wrap" title="Защищать каналы, в которые вы заходили недавно">
+              <div class="toggle-switch">
+                <input type="checkbox" id="toggleProtectRecentRead" checked>
+                <span class="toggle-slider"></span>
+              </div>
+              <span class="toggle-label" style="font-weight: 500;">Не удалять, если читал недавно</span>
+            </label>
+
+            <!-- Logic Mode Toggle -->
+            <label class="toggle-wrap" title="ИЛИ: достаточно одного совпадения. И: требуются все условия.">
+              <span class="toggle-label" style="font-weight: 500;">Логика:</span>
+              <div class="toggle-switch">
+                <input type="checkbox" id="toggleLogicMode">
+                <span class="toggle-slider"></span>
+              </div>
+              <span id="labelLogicMode" class="badge badge-candidate">ИЛИ (любое условие)</span>
+            </label>
+
+            <!-- Protect Admin Toggle -->
+            <label class="toggle-wrap">
+              <div class="toggle-switch">
+                <input type="checkbox" id="toggleProtectAdmin" checked>
+                <span class="toggle-slider"></span>
+              </div>
+              <span class="toggle-label">Защита админ-чатов</span>
+            </label>
+
+            <!-- Protect Pinned Toggle -->
+            <label class="toggle-wrap">
+              <div class="toggle-switch">
+                <input type="checkbox" id="toggleProtectPinned" checked>
+                <span class="toggle-slider"></span>
+              </div>
+              <span class="toggle-label">Защита закрепленных</span>
+            </label>
+          </div>
+
+          <button id="btnScanDialogs" class="btn btn-primary">
+            <svg class="icon" viewBox="0 0 24 24">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            Сканировать диалоги
+          </button>
+        </div>
+      </div>
+
+      <!-- Summary Metrics Bar -->
+      <div class="summary-metrics">
+        <div class="metric-card">
+          <span class="metric-label">Всего найдено</span>
+          <span id="metricTotalFound" class="metric-value">0</span>
+        </div>
+        <div class="metric-card danger">
+          <span class="metric-label">Кандидаты на выход</span>
+          <span id="metricCandidatesCount" class="metric-value text-danger">0</span>
+        </div>
+        <div class="metric-card safe">
+          <span class="metric-label">Защищенные сущности</span>
+          <span id="metricProtectedCount" class="metric-value text-success">0</span>
+        </div>
+        <div class="metric-card accent">
+          <span class="metric-label">Выбрано к выходу</span>
+          <span id="metricSelectedCount" class="metric-value" style="color: var(--accent-indigo);">0</span>
+        </div>
+      </div>
+
+      <!-- Action Bar -->
+      <div class="action-bar">
+        <div class="flex items-center gap-3" style="flex: 1;">
+          <div class="search-box">
+            <svg class="icon" viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="text" id="inputSearch" class="input-text" placeholder="Поиск по названию или @username...">
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button id="btnFilterAll" class="btn btn-secondary btn-sm active">Все</button>
+            <button id="btnFilterCandidates" class="btn btn-secondary btn-sm">Только кандидаты</button>
+            <button id="btnFilterProtected" class="btn btn-secondary btn-sm">Только защищенные</button>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button id="btnSelectAllCandidates" class="btn btn-secondary btn-sm" title="Выбрать всех кандидатов">
+            Выбрать все кандидаты
+          </button>
+          <button id="btnInvertSelection" class="btn btn-secondary btn-sm" title="Инвертировать выбор">
+            Инвертировать
+          </button>
+          <button id="btnDeselectAll" class="btn btn-ghost btn-sm" title="Снять весь выбор">
+            Снять выбор
+          </button>
+          <button id="btnLeaveSelected" class="btn btn-danger" disabled>
+            <svg class="icon" viewBox="0 0 24 24">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            <span id="leaveBtnLabel">Покинуть выбранные (0)</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Interactive Data Table -->
+      <div class="table-wrap">
+        <table id="dialogsTable">
+          <thead>
+            <tr>
+              <th style="width: 42px; text-align: center;">
+                <input type="checkbox" id="checkMaster" title="Выбрать все видимые">
+              </th>
+              <th class="sortable" data-sort="title">Название и тип</th>
+              <th class="sortable" data-sort="username">Юзернейм</th>
+              <th class="sortable" data-sort="unread_count">Непрочитанных</th>
+              <th class="sortable" data-sort="dormancy_days">Сколько дней без постов</th>
+              <th class="sortable" data-sort="user_inactive_days">Сколько дней я не читал</th>
+              <th>Статус / Причина отбора</th>
+              <th style="text-align: right;">Действия</th>
+            </tr>
+          </thead>
+          <tbody id="dialogsTableBody">
+            <!-- Populated via app.js -->
+            <tr>
+              <td colspan="8" style="text-align: center; padding: 48px 24px; color: var(--text-muted);">
+                <div class="flex flex-col items-center gap-3">
+                  <svg class="icon icon-lg" style="width: 36px; height: 36px; color: var(--text-disabled);" viewBox="0 0 24 24">
+                    <circle cx="11" cy="11" r="8"/>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  </svg>
+                  <span>Диалоги еще не отсканированы. Нажмите <strong>«Сканировать диалоги»</strong> для анализа.</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </section>
+
+    <!-- ======================================================================
+         TAB 2: History & Rollback
+         ====================================================================== -->
+    <section id="tab-history" class="tab-content">
+      <div class="card" style="margin-bottom: 20px;">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3>Сессии очистки и выборочный откат (Rollback)</h3>
+            <p class="text-subtle" style="font-size: 0.85rem;">
+              Каждый выход фиксируется со снапшотом метаданных. Публичные каналы восстанавливаются автоматически.
+            </p>
+          </div>
+          <button id="btnRefreshHistory" class="btn btn-secondary btn-sm">
+            <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            Обновить историю
+          </button>
+        </div>
+      </div>
+
+      <!-- Batches Container -->
+      <div id="batchesContainer" class="flex flex-col gap-4">
+        <!-- Loaded dynamically -->
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         TAB 3: Whitelist Management
+         ====================================================================== -->
+    <section id="tab-whitelist" class="tab-content">
+      <div class="card" style="margin-bottom: 20px;">
+        <div class="flex items-center justify-between" style="margin-bottom: 16px;">
+          <div>
+            <h3>Управление белым списком (Whitelist)</h3>
+            <p class="text-subtle" style="font-size: 0.85rem;">
+              Каналы и группы из этого списка защищены от любого выхода независимо от параметров фильтрации.
+            </p>
+          </div>
+        </div>
+
+        <!-- Add to Whitelist Form -->
+        <form id="formAddWhitelist" class="flex items-center gap-3" style="flex-wrap: wrap;">
+          <input type="number" id="wlEntityId" class="input-text" placeholder="ID канала (например: 123456789)" style="flex: 1; min-width: 180px;" required>
+          <input type="text" id="wlTitle" class="input-text" placeholder="Название канала" style="flex: 2; min-width: 220px;" required>
+          <input type="text" id="wlUsername" class="input-text" placeholder="@username (необязательно)" style="flex: 1; min-width: 160px;">
+          <button type="submit" class="btn btn-primary">
+            <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Добавить в белый список
+          </button>
+        </form>
+      </div>
+
+      <!-- Whitelist Table -->
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID сущности</th>
+              <th>Название</th>
+              <th>Юзернейм</th>
+              <th>Дата добавления</th>
+              <th style="text-align: right;">Действие</th>
+            </tr>
+          </thead>
+          <tbody id="whitelistTableBody">
+            <!-- Loaded via app.js -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         TAB 4: Backup Files
+         ====================================================================== -->
+    <section id="tab-backups" class="tab-content">
+      <div class="card" style="margin-bottom: 20px;">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3>Файлы резервных копий (C:\tg\backups)</h3>
+            <p class="text-subtle" style="font-size: 0.85rem;">
+              JSON и CSV дампы создаются перед каждой операцией выхода для полной прозрачности и сохранности данных.
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="btnOpenExplorer" class="btn btn-secondary">
+              <svg class="icon" viewBox="0 0 24 24">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              </svg>
+              Открыть папку в Проводнике
+            </button>
+            <button id="btnRefreshBackups" class="btn btn-ghost btn-sm">
+              <svg class="icon icon-sm" viewBox="0 0 24 24">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Имя файла</th>
+              <th>Тип</th>
+              <th>Размер</th>
+              <th>Дата создания</th>
+              <th>Сессия (Batch ID)</th>
+              <th style="text-align: right;">Действия</th>
+            </tr>
+          </thead>
+          <tbody id="backupsTableBody">
+            <!-- Loaded via app.js -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========================================================================
+       MODAL 1: Auth Wizard Modal
+       ======================================================================== -->
+  <div id="modalAuth" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="flex items-center gap-2">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+          <h3 id="authModalTitle">Мастер авторизации Telegram</h3>
+        </div>
+        <button id="btnAuthModalClose" class="btn btn-ghost btn-sm" aria-label="Закрыть">
+          <svg class="icon" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Step 1: Credentials & Phone -->
+        <div id="authStep1" class="flex flex-col gap-4">
+          <p class="text-muted" style="font-size: 0.85rem;">
+            Для работы с официальным API Telegram укажите данные приложения из
+            <a href="https://my.telegram.org/apps" target="_blank" rel="noopener noreferrer" style="color: var(--accent-indigo); text-decoration: underline;">my.telegram.org</a>.
+          </p>
+
+          <div class="flex flex-col gap-2">
+            <label class="text-subtle" style="font-size: 0.8rem;">API ID</label>
+            <input type="number" id="authApiId" class="input-text" placeholder="например: 12345678">
+          </div>
+
+          <div class="flex flex-col gap-2">
+            <label class="text-subtle" style="font-size: 0.8rem;">API Hash</label>
+            <input type="text" id="authApiHash" class="input-text" placeholder="например: 0123456789abcdef0123456789abcdef">
+          </div>
+
+          <div class="flex flex-col gap-2">
+            <label class="text-subtle" style="font-size: 0.8rem;">Номер телефона (в международном формате)</label>
+            <input type="text" id="authPhone" class="input-text" placeholder="+79991234567">
+          </div>
+        </div>
+
+        <!-- Step 2: Confirmation Code -->
+        <div id="authStep2" class="flex flex-col gap-4" style="display: none;">
+          <p class="text-muted" style="font-size: 0.85rem;">
+            Код подтверждения отправлен в Telegram на номер <strong id="authPhoneDisplay" class="text-main"></strong>.
+          </p>
+
+          <div class="flex flex-col gap-2">
+            <label class="text-subtle" style="font-size: 0.8rem;">Код подтверждения (5 цифр)</label>
+            <input type="text" id="authCode" class="input-text text-mono" placeholder="12345" maxlength="10" style="font-size: 1.25rem; letter-spacing: 0.2em; text-align: center;">
+          </div>
+        </div>
+
+        <!-- Step 3: 2FA Cloud Password -->
+        <div id="authStep3" class="flex flex-col gap-4" style="display: none;">
+          <p class="text-muted" style="font-size: 0.85rem;">
+            Для аккаунта включена двухфакторная аутентификация (2FA). Введите облачный пароль.
+          </p>
+
+          <div class="flex flex-col gap-2">
+            <label class="text-subtle" style="font-size: 0.8rem;">Облачный пароль</label>
+            <input type="password" id="authPassword" class="input-text" placeholder="Ваш 2FA пароль">
+          </div>
+        </div>
+
+        <!-- Step 4: Logged In Account Details -->
+        <div id="authStep4" class="flex flex-col gap-4" style="display: none;">
+          <div class="card" style="background: var(--bg-surface);">
+            <div class="flex items-center gap-3">
+              <div class="brand-icon-box" style="background: var(--accent-emerald-bg); border-color: var(--accent-emerald-border); color: var(--accent-emerald);">
+                <svg class="icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              <div>
+                <h4 id="authAccountName">Имя пользователя</h4>
+                <span id="authAccountDetail" class="text-subtle" style="font-size: 0.8rem;">@username • +123456789</span>
+              </div>
+            </div>
+          </div>
+          <p class="text-muted" style="font-size: 0.85rem;">
+            Сессия MTProto активна и сохранена в <code class="text-mono">C:\tg\data\telegram.session</code>.
+          </p>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="btnAuthCancel" class="btn btn-ghost">Отмена</button>
+        <button id="btnAuthSubmitStep1" class="btn btn-primary">Получить код</button>
+        <button id="btnAuthSubmitStep2" class="btn btn-primary" style="display: none;">Войти</button>
+        <button id="btnAuthSubmitStep3" class="btn btn-primary" style="display: none;">Подтвердить пароль</button>
+        <button id="btnAuthLogout" class="btn btn-danger-outline" style="display: none;">Выйти из аккаунта</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL 2: Leave Confirmation Modal
+       ======================================================================== -->
+  <div id="modalLeaveConfirm" class="modal-overlay">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <div class="flex items-center gap-2">
+          <svg class="icon text-danger" viewBox="0 0 24 24">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <h3>Подтверждение выхода из каналов и чатов</h3>
+        </div>
+        <button id="btnLeaveModalClose" class="btn btn-ghost btn-sm" aria-label="Закрыть">
+          <svg class="icon" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="modal-body flex flex-col gap-4">
+        <div class="card" style="background: rgba(239, 68, 68, 0.08); border-color: var(--accent-crimson-border);">
+          <div class="flex items-center justify-between" style="margin-bottom: 8px;">
+            <strong class="text-danger" style="font-size: 0.95rem;">Вы собираетесь покинуть:</strong>
+            <span id="confirmTotalCount" class="badge badge-candidate" style="font-size: 0.85rem;">0 сущностей</span>
+          </div>
+          <div class="flex items-center gap-6" style="font-size: 0.85rem;">
+            <span>Публичных: <strong id="confirmPublicCount" class="text-main">0</strong> (возможен откат)</span>
+            <span>Приватных: <strong id="confirmPrivateCount" class="text-danger">0</strong> (автооткат невозможен)</span>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 text-subtle" style="font-size: 0.8rem;">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <span>Перед выходом полный снапшот списка будет автоматически экспортирован в <strong>C:\tg\backups</strong> (JSON и CSV).</span>
+        </div>
+
+        <!-- Preview List of Selected -->
+        <div class="table-wrap" style="max-height: 240px; overflow-y: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Название</th>
+                <th>Юзернейм</th>
+                <th>Тип</th>
+                <th>Причина отбора</th>
+              </tr>
+            </thead>
+            <tbody id="confirmSelectedTableBody">
+              <!-- Dynamically rendered -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="btnLeaveCancel" class="btn btn-secondary">Отмена</button>
+        <button id="btnLeaveProceed" class="btn btn-danger">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          Подтвердить физический выход
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       DRAWER: Bottom Live Progress Terminal Drawer
+       ======================================================================== -->
+  <aside id="progressDrawer" class="drawer-container">
+    <div class="drawer-header">
+      <div class="flex items-center gap-3">
+        <div id="drawerSpinner" class="brand-icon-box" style="width: 28px; height: 28px;">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        </div>
+        <div>
+          <h4 id="drawerActionTitle">Выполняется операция...</h4>
+          <span id="drawerStatusText" class="text-subtle" style="font-size: 0.78rem;">Инициализация...</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-4">
+        <span id="drawerCounterBadge" class="badge badge-candidate text-mono" style="font-size: 0.82rem;">0 / 0</span>
+        <button id="btnDrawerCancel" class="btn btn-danger-outline btn-sm">Отмена</button>
+        <button id="btnDrawerClose" class="btn btn-ghost btn-sm" style="display: none;">Закрыть</button>
+      </div>
+    </div>
+
+    <div class="drawer-body">
+      <!-- Progress Bar -->
+      <div class="progress-track">
+        <div id="drawerProgressFill" class="progress-fill"></div>
+      </div>
+
+      <!-- Logs Area -->
+      <div id="drawerTerminalLogs" class="terminal-logs">
+        <!-- Live log entries -->
+      </div>
+    </div>
+  </aside>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Application Logic -->
+  <script src="/static/app.js"></script>
+</body>
+</html>
