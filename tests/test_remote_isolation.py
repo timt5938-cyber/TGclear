@@ -1,16 +1,20 @@
 """Remote access must never share Telegram state between VELLIUM accounts."""
 
 import time
+import base64
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from tg_cleaner.api import app as api_module
+from tg_cleaner.storage.backup import export_batch_backup
 
 
 def test_remote_api_requires_login_and_isolates_storage(monkeypatch, tmp_path):
     monkeypatch.setattr(api_module, "REMOTE_MODE", True)
     monkeypatch.setattr(api_module, "DATA_DIR", tmp_path / "data")
     monkeypatch.setattr(api_module, "BACKUPS_DIR", tmp_path / "backups")
+    monkeypatch.setenv("TG_DATA_KEY", base64.b64encode(b"test-key-for-isolation-checks-01").decode())
     api_module._tenants.clear()
 
     async def verify(token: str) -> str:
@@ -39,6 +43,13 @@ def test_remote_api_requires_login_and_isolates_storage(monkeypatch, tmp_path):
     assert client.get("/api/tasks/status", headers=a).json()["status"] == "completed"
     assert client.get("/api/tasks/status", headers=b).json()["status"] == "idle"
     assert client.get("/api/dialogs", headers=b).json() == []
+    tenant_a = api_module.tenant_for(verify_user_id("a"))
+    json_path, _ = export_batch_backup("private", [{"title": "Only A"}], tenant_a.telegram_service.backup_dir, tenant_a.cipher)
+    filename = Path(json_path).name
+    assert b"Only A" not in Path(json_path).read_bytes()
+    download = client.get(f"/api/backups/download/{filename}", headers=a)
+    assert download.status_code == 200 and b"Only A" in download.content
+    assert client.get(f"/api/backups/download/{filename}", headers=b).status_code == 404
 
 
 def verify_user_id(token: str) -> str:

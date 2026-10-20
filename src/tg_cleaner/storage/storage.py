@@ -8,6 +8,8 @@ and asynchronous (aiosqlite) access patterns with WAL mode and foreign key integ
 import json
 import os
 import sqlite3
+import threading
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -15,6 +17,7 @@ from typing import Any, Dict, List, Optional, Set
 import aiosqlite
 
 from tg_cleaner.storage.models import SnapshotRecord
+from tg_cleaner.storage.crypto import DataCipher
 
 DEFAULT_DB_PATH = r"C:\tg\data\tg_cleaner.db" if os.name == "nt" else str(Path(__file__).resolve().parents[3] / "data" / "tg_cleaner.db")
 
@@ -84,13 +87,18 @@ class StorageManager:
         _ensure_dir(self.db_path)
         self.init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _get_connection(self):
         """Create and configure a SQLite connection."""
         conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA foreign_keys = ON;")
-        return conn
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode = WAL;")
+            conn.execute("PRAGMA foreign_keys = ON;")
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
 
     def init_db(self) -> None:
         """Execute DDL statements to ensure all tables and indexes exist."""
@@ -288,6 +296,44 @@ class StorageManager:
                 except Exception:
                     result[key] = raw_val
             return result
+
+
+class EncryptedStorageManager(StorageManager):
+    """Remote account SQLite kept in memory and sealed on every transaction."""
+
+    def __init__(self, db_path: str, cipher: DataCipher) -> None:
+        self.cipher = cipher
+        self.legacy_path = Path(db_path)
+        self._lock = threading.RLock()
+        super().__init__(db_path + ".enc")
+
+    @contextmanager
+    def _get_connection(self):
+        with self._lock:
+            conn = sqlite3.connect(":memory:", check_same_thread=False)
+            try:
+                conn.row_factory = sqlite3.Row
+                encrypted = Path(self.db_path)
+                if self.legacy_path.exists():
+                    with closing(sqlite3.connect(str(self.legacy_path))) as old:
+                        old.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                        old.execute("PRAGMA journal_mode=DELETE")
+                        old.backup(conn)
+                        conn.execute("PRAGMA journal_mode=MEMORY")
+                elif encrypted.exists():
+                    conn.deserialize(self.cipher.read(encrypted, "database"))
+                conn.execute("PRAGMA foreign_keys = ON")
+                yield conn
+                conn.commit()
+                raw = conn.serialize()
+                self.cipher.write(encrypted, raw, "database")
+                if self.cipher.read(encrypted, "database") != raw:
+                    raise ValueError("Encrypted database verification failed")
+                if self.legacy_path.exists():
+                    for suffix in ("", "-wal", "-shm"):
+                        Path(str(self.legacy_path) + suffix).unlink(missing_ok=True)
+            finally:
+                conn.close()
 
 
 class AsyncStorageManager:

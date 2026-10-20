@@ -15,8 +15,10 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from telethon import TelegramClient, errors, functions, types
+from telethon.sessions import SQLiteSession, StringSession
 
 from tg_cleaner.storage.backup import export_batch_backup
+from tg_cleaner.storage.crypto import DataCipher
 from tg_cleaner.storage.models import (
     ChatEntity,
     EntityType,
@@ -388,11 +390,13 @@ class TelegramService:
         client: Optional[Any] = None,
         rate_limit_delay_range: Optional[Tuple[float, float]] = None,
         rollback_delay_range: Optional[Tuple[float, float]] = None,
+        cipher: Optional[DataCipher] = None,
     ) -> None:
         self.session_path = session_path
         self.storage = storage or StorageManager()
         self.backup_dir = backup_dir
         self.mock_mode = mock_mode
+        self.cipher = cipher
         self.client: Optional[Any] = client
 
         # Configurable rate limiting delay ranges
@@ -412,6 +416,32 @@ class TelegramService:
         """Ensure session file directory exists."""
         session_dir = os.path.dirname(os.path.abspath(self.session_path))
         os.makedirs(session_dir, exist_ok=True)
+
+    def _load_session(self):
+        if not self.cipher:
+            return self.session_path
+        encrypted = Path(self.session_path + ".enc")
+        legacy = Path(self.session_path)
+        if legacy.exists():
+            old = SQLiteSession(self.session_path)
+            try:
+                saved = StringSession.save(old)
+            finally:
+                old.close()
+            self.cipher.write(encrypted, saved.encode(), "session")
+            if self.cipher.read(encrypted, "session").decode() != saved:
+                raise ValueError("Session migration verification failed")
+            for suffix in ("", "-journal", "-wal", "-shm"):
+                Path(self.session_path + suffix).unlink(missing_ok=True)
+            return StringSession(saved)
+        if encrypted.exists():
+            return StringSession(self.cipher.read(encrypted, "session").decode())
+        return StringSession()
+
+    def _save_session(self) -> None:
+        if self.cipher and self.client and isinstance(self.client.session, StringSession):
+            saved = StringSession.save(self.client.session)
+            self.cipher.write(Path(self.session_path + ".enc"), saved.encode(), "session")
 
     def _get_or_create_client(
         self,
@@ -438,7 +468,7 @@ class TelegramService:
 
             self._ensure_session_dir()
             self.client = TelegramClient(
-                self.session_path,
+                self._load_session(),
                 int(cfg_api_id),
                 str(cfg_api_hash),
             )
@@ -460,6 +490,7 @@ class TelegramService:
         if self.client is not None:
             try:
                 await self.client.disconnect()
+                self._save_session()
             except Exception as e:
                 logger.warning("Error during disconnect: %s", e)
 
@@ -551,10 +582,11 @@ class TelegramService:
             self.client = None
 
         self._ensure_session_dir()
-        self.client = TelegramClient(self.session_path, int(api_id), str(api_hash))
+        self.client = TelegramClient(self._load_session(), int(api_id), str(api_hash))
         await self.client.connect()
 
         res = await self.client.send_code_request(phone)
+        self._save_session()
         phone_code_hash = getattr(res, "phone_code_hash", None)
 
         self.storage.save_settings({
@@ -594,6 +626,7 @@ class TelegramService:
                 "username": getattr(user, "username", None),
                 "phone": getattr(user, "phone", phone),
             }
+            self._save_session()
             return {"status": "authorized", "user": user_dict}
 
         except errors.SessionPasswordNeededError:
@@ -610,6 +643,7 @@ class TelegramService:
         """
         client = await self._ensure_connected()
         user = await client.sign_in(password=password)
+        self._save_session()
         user_dict = {
             "id": getattr(user, "id", None),
             "first_name": getattr(user, "first_name", None),
@@ -634,7 +668,7 @@ class TelegramService:
 
         # Clean session files from disk
         base = self.session_path
-        candidates = [base]
+        candidates = [base, base + ".enc"]
         if not base.endswith(".session"):
             candidates.append(base + ".session")
 
@@ -962,6 +996,7 @@ class TelegramService:
             batch_id=batch_id,
             snapshots=initial_snapshots,
             backup_dir=self.backup_dir,
+            cipher=self.cipher,
         )
         logger.info(
             "Batch %s pre-departure backup exported: JSON=%s, CSV=%s",
@@ -1067,6 +1102,7 @@ class TelegramService:
             batch_id=batch_id,
             snapshots=final_snapshots,
             backup_dir=self.backup_dir,
+            cipher=self.cipher,
         )
 
         return {
@@ -1239,6 +1275,7 @@ class TelegramService:
             batch_id=batch_id,
             snapshots=updated_snapshots,
             backup_dir=self.backup_dir,
+            cipher=self.cipher,
         )
 
         return {

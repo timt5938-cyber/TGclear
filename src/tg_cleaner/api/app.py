@@ -6,6 +6,7 @@ whitelist management, backup inspection/export, and application settings.
 """
 
 import asyncio
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 import logging
 import os
@@ -29,15 +30,16 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from tg_cleaner.core.filters import evaluate_candidates, evaluate_entity
 from tg_cleaner.core.telegram_service import TelegramService
 from tg_cleaner.storage.backup import list_backups
+from tg_cleaner.storage.crypto import DataCipher
 from tg_cleaner.storage.models import ChatEntity, FilterConfig, SnapshotRecord
-from tg_cleaner.storage.storage import StorageManager
+from tg_cleaner.storage.storage import EncryptedStorageManager, StorageManager
 
 logger = logging.getLogger("tg_cleaner.api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -135,14 +137,25 @@ class TaskTracker:
 
 
 class TenantState:
-    def __init__(self, directory: Path, backup_dir: Path, mock_mode: bool = False) -> None:
+    def __init__(self, directory: Path, backup_dir: Path, mock_mode: bool = False, tenant_id: Optional[str] = None) -> None:
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.storage = StorageManager(db_path=str(directory / "tg_cleaner.db"))
+        self.cipher = DataCipher(os.environ["TG_DATA_KEY"], tenant_id) if tenant_id else None
+        self.storage = EncryptedStorageManager(str(directory / "tg_cleaner.db"), self.cipher) if self.cipher else StorageManager(db_path=str(directory / "tg_cleaner.db"))
+        if self.cipher:
+            for old in (*backup_dir.glob("*.json"), *backup_dir.glob("*.csv")):
+                encrypted = old.with_name(old.name + ".enc")
+                source = old.read_bytes()
+                self.cipher.write(encrypted, source, "backup:" + old.name)
+                if self.cipher.read(encrypted, "backup:" + old.name) != source:
+                    raise ValueError("Backup migration verification failed")
+                old.unlink()
         self.telegram_service = TelegramService(
             session_path=str(directory / "telegram.session"),
-            storage=self.storage, backup_dir=str(backup_dir), mock_mode=mock_mode,
+            storage=self.storage, backup_dir=str(backup_dir), mock_mode=mock_mode, cipher=self.cipher,
         )
+        if self.cipher:
+            self.telegram_service._load_session()
         self.cached_dialogs: List[ChatEntity] = []
         self.task_tracker = TaskTracker()
         self.ws_manager = ConnectionManager()
@@ -166,7 +179,7 @@ def current_state() -> TenantState:
 def tenant_for(user_id: str) -> TenantState:
     user_id = str(UUID(user_id))
     if user_id not in _tenants:
-        _tenants[user_id] = TenantState(DATA_DIR / "users" / user_id, BACKUPS_DIR / "users" / user_id)
+        _tenants[user_id] = TenantState(DATA_DIR / "users" / user_id, BACKUPS_DIR / "users" / user_id, tenant_id=user_id)
     return _tenants[user_id]
 
 
@@ -257,10 +270,27 @@ class TenantAuthMiddleware:
 # FastAPI App Initialization
 # -----------------------------------------------------------------------------
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    if REMOTE_MODE:
+        if not os.environ.get("TG_DATA_KEY"):
+            raise RuntimeError("TG_DATA_KEY is required in remote mode")
+        root = DATA_DIR / "users"
+        if root.exists():
+            for directory in root.iterdir():
+                if directory.is_dir():
+                    try:
+                        user_id = str(UUID(directory.name))
+                    except ValueError:
+                        continue
+                    tenant_for(user_id)
+    yield
+
 app = FastAPI(
     title="Telegram Cleaner API",
     description="High-performance backend for Telegram dialog scanning, filtering, departure and rollback.",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(TenantAuthMiddleware)
@@ -705,7 +735,10 @@ async def remove_from_whitelist(entity_id: int) -> Dict[str, Any]:
 @app.get("/api/backups")
 async def get_backups() -> List[Dict[str, Any]]:
     """List all available JSON and CSV backup dumps."""
-    return list_backups(telegram_service.backup_dir)
+    backups = list_backups(telegram_service.backup_dir)
+    if REMOTE_MODE:
+        return [{key: value for key, value in item.items() if key != "filepath"} for item in backups]
+    return backups
 
 
 @app.post("/api/backups/open-folder")
@@ -736,14 +769,20 @@ async def open_backups_folder() -> Dict[str, Any]:
 async def download_backup_file(filename: str):
     """Serve backup JSON or CSV file for download."""
     clean_name = os.path.basename(filename)
-    if clean_name != filename or not clean_name.endswith((".json", ".csv")):
+    plain_name = clean_name.removesuffix(".enc")
+    if clean_name != filename or not plain_name.endswith((".json", ".csv")):
         raise HTTPException(status_code=400, detail="Invalid backup filename")
     target = Path(telegram_service.backup_dir) / clean_name
 
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="Backup file not found")
 
-    media_type = "application/json" if clean_name.endswith(".json") else "text/csv; charset=utf-8"
+    media_type = "application/json" if plain_name.endswith(".json") else "text/csv; charset=utf-8"
+    if current_state().cipher:
+        if not clean_name.endswith(".enc"):
+            raise HTTPException(status_code=404, detail="Backup file not found")
+        payload = current_state().cipher.read(target, "backup:" + plain_name)
+        return Response(payload, media_type=media_type, headers={"Content-Disposition": f'attachment; filename="{plain_name}"', "Cache-Control": "no-store"})
     return FileResponse(
         path=str(target),
         filename=clean_name,

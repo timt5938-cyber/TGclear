@@ -801,6 +801,17 @@ async function loadFolders() {
 function setupActionButtons() {
   document.getElementById('btnScanDialogs').addEventListener('click', startScan);
   document.getElementById('btnHeaderScan').addEventListener('click', startScan);
+  document.getElementById('btnJourneyScan').addEventListener('click', startScan);
+  document.getElementById('btnJourneyConnect').addEventListener('click', () => {
+    if (window.location.pathname.startsWith('/tgclear/tool')) {
+      window.open('/tgclear#how-to-connect', '_top');
+    } else {
+      openAuthModal();
+    }
+  });
+  document.getElementById('btnJourneyReview').addEventListener('click', () => {
+    document.querySelector('.summary-metrics').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 
   document.getElementById('btnSelectAllCandidates').addEventListener('click', () => {
     state.selectedIds.clear();

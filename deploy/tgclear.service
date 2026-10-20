@@ -9,6 +9,7 @@ User=timoha
 Group=timoha
 WorkingDirectory=/opt/tgclear
 EnvironmentFile=/opt/tgclear/.env
+EnvironmentFile=/opt/tgclear/crypto.env
 Environment=TG_REMOTE_MODE=1
 Environment=PYTHONPATH=/opt/tgclear/src
 Environment=PYTHONDONTWRITEBYTECODE=1

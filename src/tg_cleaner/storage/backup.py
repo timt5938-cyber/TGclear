@@ -6,12 +6,15 @@ and selective manual restoration.
 """
 
 import csv
+import io
+from contextlib import nullcontext
 import json
 import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from tg_cleaner.storage.crypto import DataCipher
 
 DEFAULT_BACKUP_DIR = r"C:\tg\backups" if os.name == "nt" else str(Path(__file__).resolve().parents[3] / "backups")
 
@@ -50,6 +53,7 @@ def export_batch_backup(
     batch_id: str,
     snapshots: List[Dict[str, Any]],
     backup_dir: str = DEFAULT_BACKUP_DIR,
+    cipher: Optional[DataCipher] = None,
 ) -> Tuple[str, str]:
     """Export snapshot records of a cleanup batch into both JSON and CSV files.
 
@@ -97,13 +101,18 @@ def export_batch_backup(
 
     json_filename = f"cleanup_batch_{batch_id}_{timestamp}.json"
     json_path = os.path.join(backup_dir, json_filename)
-    with open(json_path, "w", encoding="utf-8") as jf:
-        json.dump(json_payload, jf, indent=2, ensure_ascii=False)
+    if cipher:
+        json_path += ".enc"
+        cipher.write(Path(json_path), json.dumps(json_payload, indent=2, ensure_ascii=False).encode("utf-8"), "backup:" + json_filename)
+    else:
+        with open(json_path, "w", encoding="utf-8") as jf:
+            json.dump(json_payload, jf, indent=2, ensure_ascii=False)
 
     # 2. Prepare CSV export
     csv_filename = f"cleanup_batch_{batch_id}_{timestamp}.csv"
     csv_path = os.path.join(backup_dir, csv_filename)
-    with open(csv_path, "w", encoding="utf-8-sig", newline="") as cf:
+    cf = io.StringIO(newline="") if cipher else open(csv_path, "w", encoding="utf-8-sig", newline="")
+    with cf if not cipher else nullcontext(cf):
         writer = csv.writer(cf)
         writer.writerow(CSV_HEADERS)
         for s in snapshots:
@@ -120,6 +129,9 @@ def export_batch_backup(
                 s.get("left_at", ""),
                 s.get("restore_status", "left"),
             ])
+    if cipher:
+        csv_path += ".enc"
+        cipher.write(Path(csv_path), cf.getvalue().encode("utf-8-sig"), "backup:" + csv_filename)
 
     return (json_path, csv_path)
 
@@ -138,13 +150,13 @@ def list_backups(backup_dir: str = DEFAULT_BACKUP_DIR) -> List[Dict[str, Any]]:
         return []
 
     backups: List[Dict[str, Any]] = []
-    batch_pattern = re.compile(r"^cleanup_batch_(.+?)_\d{8}_\d{6}\.(json|csv)$")
+    batch_pattern = re.compile(r"^cleanup_batch_(.+?)_\d{8}_\d{6}\.(json|csv)(?:\.enc)?$")
 
     for entry in os.scandir(backup_dir):
         if not entry.is_file():
             continue
 
-        ext = Path(entry.name).suffix.lstrip(".").lower()
+        ext = Path(entry.name.removesuffix(".enc")).suffix.lstrip(".").lower()
         if ext not in ("json", "csv"):
             continue
 
