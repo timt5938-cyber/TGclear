@@ -8,7 +8,7 @@
 // State
 // ============================================================================
 
-const cloudMode = window.location.pathname.startsWith('/tgclear/tool');
+const cloudMode = window.location.pathname.startsWith('/tgclear/tool') || window.parent !== window;
 const nativeFetch = window.fetch.bind(window);
 let accessToken = '';
 let resolveSession;
@@ -35,6 +35,9 @@ async function apiFetch(url, options = {}) {
     headers: { ...options.headers, ...(cloudMode ? { Authorization: `Bearer ${accessToken}` } : {}) },
   });
   if (cloudMode && response.status === 401) throw new Error('Сессия истекла. Обновите страницу и войдите снова.');
+  if (response.headers.get('content-type')?.includes('text/html')) {
+    throw new Error('Сервер временно недоступен. Повторите попытку через минуту.');
+  }
   return response;
 }
 
@@ -94,7 +97,9 @@ const api = {
     });
     if (!res.ok) {
       const err = await res.json();
-      throw new Error(err.detail || 'Ошибка отправки кода');
+      throw new Error(String(err.detail || 'Ошибка отправки кода').includes('Connection to Telegram failed')
+        ? 'Сервер не смог связаться с Telegram. Повторите попытку позже.'
+        : err.detail || 'Ошибка отправки кода');
     }
     return await res.json();
   },
@@ -146,11 +151,11 @@ const api = {
     });
     return await res.json();
   },
-  async leaveEntities(entityIds) {
+  async leaveEntities(entityIds, confirmIrreversible = false) {
     const res = await apiFetch('/api/leave', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entity_ids: entityIds }),
+      body: JSON.stringify({ entity_ids: entityIds, confirm_irreversible: confirmIrreversible }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -825,6 +830,7 @@ function setupActionButtons() {
   document.getElementById('btnInvertSelection').addEventListener('click', () => {
     const visible = getFilteredDialogs();
     visible.forEach((d) => {
+      if (!d.is_candidate || d.is_protected) return;
       if (state.selectedIds.has(d.id)) {
         state.selectedIds.delete(d.id);
       } else {
@@ -846,7 +852,7 @@ function setupActionButtons() {
   checkMaster.addEventListener('change', (e) => {
     const visible = getFilteredDialogs();
     if (e.target.checked) {
-      visible.forEach((d) => state.selectedIds.add(d.id));
+      visible.filter((d) => d.is_candidate && !d.is_protected).forEach((d) => state.selectedIds.add(d.id));
     } else {
       visible.forEach((d) => state.selectedIds.delete(d.id));
     }
@@ -1064,7 +1070,7 @@ function updateMetrics() {
   const btnLeave = document.getElementById('btnLeaveSelected');
   const leaveBtnLabel = document.getElementById('leaveBtnLabel');
 
-  leaveBtnLabel.textContent = `Покинуть выбранные (${selected})`;
+  leaveBtnLabel.textContent = `Убрать выбранные (${selected})`;
   btnLeave.disabled = selected === 0;
 }
 
@@ -1093,6 +1099,10 @@ function renderDialogsTable() {
       typeBadge = '<span class="badge badge-type" style="color: var(--accent-indigo); border-color: var(--accent-indigo-border);">Супергруппа</span>';
     } else if (d.entity_type === 'group') {
       typeBadge = '<span class="badge badge-type" style="color: var(--text-secondary);">Группа</span>';
+    } else if (d.entity_type === 'user') {
+      typeBadge = '<span class="badge badge-type">Личный чат</span>';
+    } else if (d.entity_type === 'bot') {
+      typeBadge = '<span class="badge badge-type">Бот</span>';
     }
 
     // Username display
@@ -1118,6 +1128,8 @@ function renderDialogsTable() {
       if (d.is_recent_read_protected) {
         statusHtml += '<span class="badge badge-protected" style="border-color: var(--accent-emerald-border); color: var(--accent-emerald);">Читали недавно</span> ';
       }
+    } else if (d.entity_type === 'user' || d.entity_type === 'bot') {
+      statusHtml = '<span class="badge badge-protected">Только вручную · без отката</span>';
     } else if (d.is_candidate) {
       const reasonText = d.trigger_reasons && d.trigger_reasons.length > 0 ? d.trigger_reasons.join('; ') : 'Условия фильтра совпали';
       statusHtml = `<span class="badge badge-candidate" title="${escapeHtml(reasonText)}">Кандидат</span><div class="text-subtle" style="font-size: 0.72rem; margin-top: 3px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(reasonText)}</div>`;
@@ -1141,7 +1153,7 @@ function renderDialogsTable() {
     return `
       <tr class="${rowClass}" data-id="${d.id}">
         <td style="text-align: center;">
-          <input type="checkbox" class="row-check" data-id="${d.id}" ${isChecked ? 'checked' : ''}>
+          <input type="checkbox" class="row-check" data-id="${d.id}" ${isChecked ? 'checked' : ''} ${d.is_protected || (!d.is_candidate && !['user', 'bot'].includes(d.entity_type)) ? 'disabled' : ''} aria-label="Выбрать ${escapeHtml(d.title)}">
         </td>
         <td>
           <div class="flex flex-col gap-1">
@@ -1285,7 +1297,7 @@ function renderHistory() {
             ? `@${escapeHtml(s.username)}`
             : '<span class="text-danger" style="font-size: 0.78rem;">Приватный (без @username)</span>';
 
-          const disableCheckbox = isPrivate || s.restore_status === 'restored';
+          const disableCheckbox = isPrivate || ['user', 'bot'].includes(s.entity_type) || s.restore_status === 'restored';
 
           return `
             <tr>
@@ -1542,12 +1554,18 @@ function setupLeaveModal() {
   btnCancel.addEventListener('click', () => modal.classList.remove('active'));
 
   btnProceed.addEventListener('click', async () => {
-    modal.classList.remove('active');
     const ids = Array.from(state.selectedIds);
     if (ids.length === 0) return;
+    const hasDirect = state.dialogs.some((d) => ids.includes(d.id) && ['user', 'bot'].includes(d.entity_type));
+    const confirmed = document.getElementById('confirmIrreversible').checked;
+    if (hasDirect && !confirmed) {
+      showToast('Подтвердите удаление личных чатов и ботов без возможности отката', 'error');
+      return;
+    }
+    modal.classList.remove('active');
 
     try {
-      await api.leaveEntities(ids);
+      await api.leaveEntities(ids, hasDirect && confirmed);
     } catch (err) {
       showToast(err.message || 'Ошибка запуска выхода', 'error');
     }
@@ -1562,6 +1580,10 @@ function openLeaveConfirmationModal() {
   const tbody = document.getElementById('confirmSelectedTableBody');
 
   const selectedList = state.dialogs.filter((d) => state.selectedIds.has(d.id));
+  const directCount = selectedList.filter((d) => ['user', 'bot'].includes(d.entity_type)).length;
+  const irreversible = document.getElementById('confirmIrreversibleWrap');
+  irreversible.hidden = directCount === 0;
+  document.getElementById('confirmIrreversible').checked = false;
   const publicCount = selectedList.filter((d) => !d.is_private && d.username).length;
   const privateCount = selectedList.filter((d) => d.is_private || !d.username).length;
 
@@ -1647,10 +1669,23 @@ function setupAuthModal() {
   btnStep1.addEventListener('click', async () => {
     const apiId = document.getElementById('authApiId').value.trim();
     const apiHash = document.getElementById('authApiHash').value.trim();
-    const phone = document.getElementById('authPhone').value.trim();
+    let phone = document.getElementById('authPhone').value.trim().replace(/[\s()-]/g, '');
 
     if (!apiId || !apiHash || !phone) {
       showToast('Заполните все поля (API ID, API Hash, телефон)', 'error');
+      return;
+    }
+    if (!/^\d{1,10}$/.test(apiId) || Number(apiId) > 2147483647) {
+      showToast('API ID должен быть числом из my.telegram.org (до 10 цифр)', 'error');
+      return;
+    }
+    if (!/^[a-f\d]{32}$/i.test(apiHash)) {
+      showToast('API Hash должен содержать 32 символа из my.telegram.org', 'error');
+      return;
+    }
+    if (/^8\d{10}$/.test(phone)) phone = `+7${phone.slice(1)}`;
+    if (!/^\+[1-9]\d{7,14}$/.test(phone)) {
+      showToast('Укажите номер с кодом страны, например +7…', 'error');
       return;
     }
 

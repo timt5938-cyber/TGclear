@@ -316,6 +316,7 @@ class VerifyPasswordRequest(BaseModel):
 
 class LeaveRequest(BaseModel):
     entity_ids: List[int]
+    confirm_irreversible: bool = False
 
 
 class RollbackRequest(BaseModel):
@@ -579,9 +580,15 @@ async def leave_entities(
     if not req.entity_ids:
         raise HTTPException(status_code=400, detail="No entity IDs provided")
     if REMOTE_MODE:
-        allowed = {d.id for d in current_state().cached_dialogs if d.is_candidate and not d.is_protected}
+        allowed = {
+            d.id for d in current_state().cached_dialogs
+            if not d.is_protected and (d.is_candidate or d.entity_type in ("user", "bot"))
+        }
         if len(req.entity_ids) > 100 or any(entity_id not in allowed for entity_id in req.entity_ids):
             raise HTTPException(status_code=400, detail="Only scanned, unprotected candidates can be left")
+    direct = {d.id for d in current_state().cached_dialogs if d.entity_type in ("user", "bot")}
+    if direct.intersection(req.entity_ids) and not req.confirm_irreversible:
+        raise HTTPException(status_code=400, detail="Deleting direct chats or bots requires explicit irreversible confirmation")
 
     if task_tracker.status == "running":
         return {

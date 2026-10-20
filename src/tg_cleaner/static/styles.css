@@ -1052,6 +1052,12 @@ input[type="checkbox"]:checked::before {
 
 /* A quieter, sequential first screen; advanced controls stay available. */
 .app-header .brand { min-width: 190px; }
+.tg-brand-home { display:inline-flex;align-items:center;gap:9px;color:var(--text-main);font-size:1rem;font-weight:800;letter-spacing:.12em;text-decoration:none;min-height:44px; }
+.tg-brand-home svg { width:26px;height:26px;color:var(--accent-indigo);flex:none; }
+.tg-brand-home:hover,.tg-brand-home:focus-visible { color:var(--accent-indigo); }
+.irreversible-warning { display:flex;gap:12px;align-items:flex-start;padding:14px;border:1px solid var(--accent-crimson-border);border-radius:9px;background:rgba(239,68,68,.08);color:var(--text-main);line-height:1.5; }
+.irreversible-warning[hidden] { display:none; }
+.irreversible-warning input { width:19px;height:19px;margin:2px 0 0;flex:none;accent-color:var(--accent-crimson); }
 .journey-heading { padding: 24px 0 27px; }
 .journey-eyebrow { color: var(--accent-indigo); font-size: .7rem; font-weight: 800; letter-spacing: .16em; }
 .journey-heading h1 { font-size: clamp(2rem,3.7vw,3.6rem); letter-spacing: -.055em; font-weight: 500; margin: 9px 0; }

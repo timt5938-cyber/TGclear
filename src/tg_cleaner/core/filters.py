@@ -39,6 +39,13 @@ def evaluate_entity(
 
     entity.is_protected = False
 
+    # Direct messages are visible for deliberate manual selection only.
+    if entity.entity_type in ("user", "bot"):
+        entity.is_candidate = False
+        entity.selected = False
+        entity.trigger_reasons = []
+        return entity
+
     # 2. Evaluate active criteria
     matched_reasons: List[str] = []
     total_active_filters = 0

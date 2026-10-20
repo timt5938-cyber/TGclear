@@ -132,10 +132,12 @@ class TestApiEndpoints(unittest.TestCase):
         dialogs = res_dialogs.json()
         self.assertGreater(len(dialogs), 0)
 
-        # Verify safety: no direct user chats (id=10001 or 10002)
-        entity_ids = [d["id"] for d in dialogs]
-        self.assertNotIn(10001, entity_ids)
-        self.assertNotIn(10002, entity_ids)
+        # Direct chats are visible but never auto-selected by filters.
+        direct = {d["id"]: d for d in dialogs if d["id"] in (10001, 10002)}
+        self.assertEqual(set(direct), {10001, 10002})
+        self.assertTrue(all(not d["is_candidate"] for d in direct.values()))
+        no_confirmation = self.client.post("/api/leave", json={"entity_ids": [10001]})
+        self.assertEqual(no_confirmation.status_code, 400)
 
         # Verify candidates exist
         candidate_ids = [d["id"] for d in dialogs if d["is_candidate"]]

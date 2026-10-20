@@ -11,6 +11,7 @@ WorkingDirectory=/opt/tgclear
 EnvironmentFile=/opt/tgclear/.env
 EnvironmentFile=/opt/tgclear/crypto.env
 Environment=TG_REMOTE_MODE=1
+Environment=TG_SOCKS_PORT=2080
 Environment=PYTHONPATH=/opt/tgclear/src
 Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/opt/tgclear/.venv/bin/uvicorn tg_cleaner.api.app:app --host 127.0.0.1 --port 8742 --workers 1 --no-access-log

@@ -14,6 +14,8 @@ class EntityType(str, Enum):
     CHANNEL = "channel"
     SUPERGROUP = "supergroup"
     GROUP = "group"
+    USER = "user"
+    BOT = "bot"
 
 
 class RestoreStatus(str, Enum):

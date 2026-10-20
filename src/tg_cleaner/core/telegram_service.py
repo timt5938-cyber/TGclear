@@ -34,6 +34,16 @@ DEFAULT_SESSION_PATH = r"C:\tg\data\telegram.session" if os.name == "nt" else st
 DEFAULT_BACKUP_DIR = r"C:\tg\backups" if os.name == "nt" else str(Path(__file__).resolve().parents[3] / "backups")
 
 
+def telegram_proxy_options() -> Optional[Dict[str, Any]]:
+    port = os.getenv("TG_SOCKS_PORT")
+    if not port:
+        return None
+    parsed = int(port)
+    if not 1 <= parsed <= 65535:
+        raise ValueError("Invalid TG_SOCKS_PORT")
+    return {"proxy_type": "socks5", "addr": "127.0.0.1", "port": parsed, "rdns": True}
+
+
 async def _emit_callback(
     cb: Optional[Callable[[Dict[str, Any]], Any]],
     data: Dict[str, Any],
@@ -63,6 +73,7 @@ class MockEntity:
         creator: bool = False,
         admin_rights: Optional[Any] = None,
         is_user: bool = False,
+        bot: bool = False,
         phone: Optional[str] = None,
     ) -> None:
         self.id = entity_id
@@ -72,6 +83,7 @@ class MockEntity:
         self.creator = creator
         self.admin_rights = admin_rights
         self._is_user = is_user
+        self.bot = bot
         self._is_channel = is_channel
         self.phone = phone
         self.first_name = title
@@ -357,7 +369,7 @@ class MockTelethonClient:
             self.left_requests.append(request)
             return True
 
-        if isinstance(request, functions.messages.DeleteChatUserRequest):
+        if isinstance(request, (functions.messages.DeleteChatUserRequest, functions.messages.DeleteHistoryRequest)):
             if self.flood_wait_on_departure > 0:
                 self.flood_wait_on_departure -= 1
                 fw = errors.FloodWaitError(request=None)
@@ -467,10 +479,14 @@ class TelegramService:
                 raise ValueError("Telegram API credentials (api_id, api_hash) are not configured.")
 
             self._ensure_session_dir()
+            proxy = telegram_proxy_options()
             self.client = TelegramClient(
                 self._load_session(),
                 int(cfg_api_id),
                 str(cfg_api_hash),
+                proxy=proxy,
+                timeout=8 if proxy else 10,
+                connection_retries=1 if proxy else 5,
             )
         return self.client
 
@@ -582,7 +598,12 @@ class TelegramService:
             self.client = None
 
         self._ensure_session_dir()
-        self.client = TelegramClient(self._load_session(), int(api_id), str(api_hash))
+        proxy = telegram_proxy_options()
+        self.client = TelegramClient(
+            self._load_session(), int(api_id), str(api_hash),
+            proxy=proxy, timeout=8 if proxy else 10,
+            connection_retries=1 if proxy else 5,
+        )
         await self.client.connect()
 
         res = await self.client.send_code_request(phone)
@@ -746,14 +767,7 @@ class TelegramService:
         progress_callback: Optional[Callable[[Dict[str, Any]], Any]] = None,
         filter_config: Optional[FilterConfig] = None,
     ) -> List[ChatEntity]:
-        """Scan user dialogs excluding personal direct messages and bots.
-
-        Strict safety rule:
-            Any dialog where `is_user` is True is strictly skipped.
-
-        Returns:
-            List of discovered channel and group ChatEntity objects.
-        """
+        """Scan channels, groups, direct messages and bots."""
         client = await self._ensure_connected()
         whitelist_ids: Set[int] = self.storage.get_whitelist_ids()
 
@@ -773,17 +787,9 @@ class TelegramService:
         async for dialog in client.iter_dialogs():
             scanned_count += 1
 
-            # Strict safety rule 1:
-            # Check dialog.is_user: if True, SKIP COMPLETELY.
-            # Neither human users nor bots are scanned or touched!
-            if getattr(dialog, "is_user", False):
-                continue
             entity = getattr(dialog, "entity", None)
-            if entity is not None and isinstance(entity, types.User):
-                continue
 
-            # Strict safety rule 2:
-            # Check archive: do not take chats from archive!
+            # Respect the archive setting for every dialog type.
             is_archived = bool(getattr(dialog, "archived", False) or getattr(dialog, "folder_id", None) == 1)
             if (filter_config is None or filter_config.ignore_archived) and is_archived:
                 continue
@@ -793,7 +799,8 @@ class TelegramService:
             # Regular group: dialog.is_group
             is_channel = bool(getattr(dialog, "is_channel", False))
             is_group = bool(getattr(dialog, "is_group", False))
-            if not is_channel and not is_group:
+            is_user = bool(getattr(dialog, "is_user", False) or isinstance(entity, types.User))
+            if not is_channel and not is_group and not is_user:
                 continue
 
             if entity is None:
@@ -807,7 +814,9 @@ class TelegramService:
             # 'channel' if is_channel and not getattr(dialog.entity, 'megagroup', False),
             # else 'supergroup' / 'group'.
             is_megagroup = bool(getattr(entity, "megagroup", False))
-            if is_channel and not is_megagroup:
+            if is_user:
+                entity_type = EntityType.BOT.value if getattr(entity, "bot", False) else EntityType.USER.value
+            elif is_channel and not is_megagroup:
                 entity_type = EntityType.CHANNEL.value
             elif is_megagroup:
                 entity_type = EntityType.SUPERGROUP.value
@@ -817,7 +826,7 @@ class TelegramService:
             title = getattr(dialog, "title", None) or getattr(dialog, "name", None) or getattr(entity, "title", f"Chat {entity_id}")
             raw_username = getattr(entity, "username", None)
             username = str(raw_username).strip() if raw_username else None
-            is_private = (username is None or len(username) == 0)
+            is_private = is_user or (username is None or len(username) == 0)
 
             # Check permissions on entity:
             # is_creator: check dialog.entity.creator or chat.creator
@@ -944,11 +953,12 @@ class TelegramService:
                     raw_user = getattr(raw_ent, "username", None)
                     is_mg = getattr(raw_ent, "megagroup", False)
                     is_chan = getattr(raw_ent, "broadcast", False) or is_mg
+                    is_user = isinstance(raw_ent, types.User) or bool(getattr(raw_ent, "_is_user", False))
                     candidates[eid] = ChatEntity(
                         id=eid,
                         title=getattr(raw_ent, "title", f"Chat {eid}"),
                         username=str(raw_user).strip() if raw_user else None,
-                        entity_type="supergroup" if is_mg else ("channel" if is_chan else "group"),
+                        entity_type=("bot" if getattr(raw_ent, "bot", False) else "user") if is_user else ("supergroup" if is_mg else ("channel" if is_chan else "group")),
                         is_private=raw_user is None,
                     )
                 except Exception:
@@ -1025,16 +1035,25 @@ class TelegramService:
             for attempt in range(max_retries):
                 try:
                     try:
-                        if ce.entity_type in (EntityType.CHANNEL.value, EntityType.SUPERGROUP.value):
+                        if ce.entity_type in (EntityType.USER.value, EntityType.BOT.value):
+                            peer = await client.get_input_entity(eid)
+                            await client(functions.messages.DeleteHistoryRequest(peer=peer, max_id=0, just_clear=False, revoke=False))
+                        elif ce.entity_type in (EntityType.CHANNEL.value, EntityType.SUPERGROUP.value):
                             channel_input = await client.get_input_entity(eid)
                             await client(functions.channels.LeaveChannelRequest(channel=channel_input))
                         else:
                             try:
                                 await client(functions.messages.DeleteChatUserRequest(chat_id=abs(eid), user_id="me"))
+                            except errors.FloodWaitError:
+                                raise
                             except Exception:
                                 channel_input = await client.get_input_entity(eid)
                                 await client(functions.channels.LeaveChannelRequest(channel=channel_input))
+                    except errors.FloodWaitError:
+                        raise
                     except Exception:
+                        if ce.entity_type in (EntityType.USER.value, EntityType.BOT.value):
+                            raise
                         channel_input = await client.get_input_entity(eid)
                         await client(functions.channels.LeaveChannelRequest(channel=channel_input))
 
@@ -1065,8 +1084,8 @@ class TelegramService:
                 if snap_id is not None:
                     self.storage.update_snapshot_restore_status(
                         snapshot_id=snap_id,
-                        status=RestoreStatus.LEFT.value,
-                        error=None,
+                        status=RestoreStatus.UNRESTORABLE_PRIVATE.value if ce.entity_type in (EntityType.USER.value, EntityType.BOT.value) else RestoreStatus.LEFT.value,
+                        error="Историю личного чата или бота нельзя восстановить из TGclear." if ce.entity_type in (EntityType.USER.value, EntityType.BOT.value) else None,
                     )
                 await _emit_callback(
                     progress_callback,
@@ -1160,6 +1179,10 @@ class TelegramService:
             raw_username = snapshot.get("username")
             username = str(raw_username).strip() if raw_username else None
             is_private = bool(snapshot.get("is_private", False))
+
+            if snapshot.get("entity_type") in (EntityType.USER.value, EntityType.BOT.value):
+                unrestorable_count += 1
+                continue
 
             # Case A: Private entity without public username (unrestorable via API)
             if is_private and not username:

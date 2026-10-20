@@ -142,8 +142,7 @@ class TestDialogScanner(unittest.IsolatedAsyncioTestCase):
         await self.service.disconnect()
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    async def test_strict_safety_rule_skips_users_and_bots(self):
-        """Strict safety rule: Direct messages with users/bots MUST NOT be scanned."""
+    async def test_direct_chats_and_bots_are_visible_but_not_auto_candidates(self):
         now = datetime.now(timezone.utc)
         custom_dialogs = [
             # Human user direct message
@@ -154,7 +153,7 @@ class TestDialogScanner(unittest.IsolatedAsyncioTestCase):
             ),
             # Bot direct message
             MockDialog(
-                entity=MockEntity(entity_id=2, title="Spam Bot", is_user=True),
+                entity=MockEntity(entity_id=2, title="Spam Bot", is_user=True, bot=True),
                 unread_count=50,
                 dialog_date=now - timedelta(days=20),
             ),
@@ -180,18 +179,20 @@ class TestDialogScanner(unittest.IsolatedAsyncioTestCase):
         def on_progress(event):
             progress_events.append(event)
 
-        entities = await self.service.scan_dialogs(progress_callback=on_progress)
-
-        # Ensure Bob and Spam Bot are completely absent
-        found_ids = {e.id for e in entities}
-        self.assertNotIn(1, found_ids, "Human direct message must not be included")
-        self.assertNotIn(2, found_ids, "Bot direct message must not be included")
-        self.assertIn(101, found_ids)
-        self.assertEqual(len(entities), 1)
+        entities = await self.service.scan_dialogs(
+            progress_callback=on_progress, filter_config=FilterConfig(unread_threshold=1)
+        )
+        found = {e.id: e for e in entities}
+        self.assertEqual(found[1].entity_type, EntityType.USER.value)
+        self.assertEqual(found[2].entity_type, EntityType.BOT.value)
+        self.assertFalse(found[1].is_candidate)
+        self.assertFalse(found[2].is_candidate)
+        self.assertIn(101, found)
+        self.assertEqual(len(entities), 3)
 
         # Check progress events were emitted
         self.assertTrue(len(progress_events) > 0)
-        self.assertEqual(progress_events[-1]["found"], 1)
+        self.assertEqual(progress_events[-1]["found"], 3)
 
     async def test_entity_classification_and_permissions(self):
         now = datetime.now(timezone.utc)
@@ -425,6 +426,22 @@ class TestDepartureEngine(unittest.IsolatedAsyncioTestCase):
         # 5. Progress callbacks verification
         statuses = [ev.get("status") for ev in progress_events if "status" in ev]
         self.assertIn("left", statuses)
+
+    async def test_direct_chat_removal_cannot_be_rolled_back(self):
+        direct = MockDialog(MockEntity(entity_id=441, title="Личный чат", is_user=True))
+        mock_client = MockTelethonClient(dialogs=[direct], is_authorized=True)
+        self.service.client = mock_client
+        await self.service.scan_dialogs(filter_config=FilterConfig())
+
+        result = await self.service.leave_entities(entity_ids=[441], batch_id="direct_001")
+        self.assertEqual(result["departed"], 1)
+        request = mock_client.left_requests[0]
+        self.assertIsInstance(request, functions.messages.DeleteHistoryRequest)
+        self.assertFalse(request.revoke)
+        snapshot = self.storage.get_batch_snapshots("direct_001")[0]
+        self.assertEqual(snapshot["restore_status"], RestoreStatus.UNRESTORABLE_PRIVATE.value)
+        restored = await self.service.rollback_entities("direct_001")
+        self.assertEqual(restored["restored"], 0)
 
     async def test_departure_flood_wait_handling(self):
         """Test that FloodWaitError is caught, logged, reported, and retried."""
