@@ -1,12 +1,42 @@
 /**
  * Telegram Cleaner - Web Client Application
- * Pure modern vanilla JS. Minimalist Deep Dark aesthetic.
+ * Browser client for the local and VELLIUM-hosted modes.
  * Strict adherence to domain terminology and clean architecture.
  */
 
 // ============================================================================
 // State
 // ============================================================================
+
+const cloudMode = window.location.pathname.startsWith('/tgclear/tool');
+const nativeFetch = window.fetch.bind(window);
+let accessToken = '';
+let resolveSession;
+const sessionReady = new Promise((resolve) => { resolveSession = resolve; });
+
+if (cloudMode) {
+  window.addEventListener('message', (event) => {
+    if (event.origin !== window.location.origin || event.source !== window.parent || event.data?.type !== 'tgclear-session') return;
+    accessToken = event.data.token || '';
+    if (accessToken) {
+      document.getElementById('cloudGate').hidden = true;
+      resolveSession();
+    }
+  });
+  window.parent.postMessage({ type: 'tgclear-ready' }, window.location.origin);
+} else {
+  resolveSession();
+}
+
+async function apiFetch(url, options = {}) {
+  await sessionReady;
+  const response = await nativeFetch(`${cloudMode ? '/tgclear' : ''}${url}`, {
+    ...options,
+    headers: { ...options.headers, ...(cloudMode ? { Authorization: `Bearer ${accessToken}` } : {}) },
+  });
+  if (cloudMode && response.status === 401) throw new Error('Сессия истекла. Обновите страницу и войдите снова.');
+  return response;
+}
 
 const state = {
   auth: {
@@ -53,11 +83,11 @@ const state = {
 
 const api = {
   async getAuthStatus() {
-    const res = await fetch('/api/auth/status');
+    const res = await apiFetch('/api/auth/status');
     return await res.json();
   },
   async sendCode(phone, api_id, api_hash) {
-    const res = await fetch('/api/auth/send-code', {
+    const res = await apiFetch('/api/auth/send-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone, api_id: Number(api_id), api_hash }),
@@ -69,7 +99,7 @@ const api = {
     return await res.json();
   },
   async verifyCode(phone, code) {
-    const res = await fetch('/api/auth/verify-code', {
+    const res = await apiFetch('/api/auth/verify-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone, code }),
@@ -81,7 +111,7 @@ const api = {
     return await res.json();
   },
   async verifyPassword(password) {
-    const res = await fetch('/api/auth/verify-password', {
+    const res = await apiFetch('/api/auth/verify-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password }),
@@ -93,15 +123,15 @@ const api = {
     return await res.json();
   },
   async logout() {
-    const res = await fetch('/api/auth/logout', { method: 'POST' });
+    const res = await apiFetch('/api/auth/logout', { method: 'POST' });
     return await res.json();
   },
   async getDialogs() {
-    const res = await fetch('/api/dialogs');
+    const res = await apiFetch('/api/dialogs');
     return await res.json();
   },
   async scanDialogs(config) {
-    const res = await fetch('/api/scan', {
+    const res = await apiFetch('/api/scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: config ? JSON.stringify(config) : undefined,
@@ -109,7 +139,7 @@ const api = {
     return await res.json();
   },
   async evaluateDialogs(config) {
-    const res = await fetch('/api/evaluate', {
+    const res = await apiFetch('/api/evaluate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config),
@@ -117,7 +147,7 @@ const api = {
     return await res.json();
   },
   async leaveEntities(entityIds) {
-    const res = await fetch('/api/leave', {
+    const res = await apiFetch('/api/leave', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ entity_ids: entityIds }),
@@ -129,15 +159,15 @@ const api = {
     return await res.json();
   },
   async getFolders() {
-    const res = await fetch('/api/folders');
+    const res = await apiFetch('/api/folders');
     return await res.json();
   },
   async getHistory() {
-    const res = await fetch('/api/history');
+    const res = await apiFetch('/api/history');
     return await res.json();
   },
   async rollbackBatch(batchId, snapshotIds = null) {
-    const res = await fetch(`/api/history/${batchId}/rollback`, {
+    const res = await apiFetch(`/api/history/${batchId}/rollback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: snapshotIds ? JSON.stringify({ snapshot_ids: snapshotIds }) : undefined,
@@ -145,11 +175,11 @@ const api = {
     return await res.json();
   },
   async getWhitelist() {
-    const res = await fetch('/api/whitelist');
+    const res = await apiFetch('/api/whitelist');
     return await res.json();
   },
   async addToWhitelist(entity_id, title, username = null) {
-    const res = await fetch('/api/whitelist', {
+    const res = await apiFetch('/api/whitelist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ entity_id: Number(entity_id), title, username }),
@@ -157,23 +187,23 @@ const api = {
     return await res.json();
   },
   async removeFromWhitelist(entity_id) {
-    const res = await fetch(`/api/whitelist/${entity_id}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/whitelist/${entity_id}`, { method: 'DELETE' });
     return await res.json();
   },
   async getBackups() {
-    const res = await fetch('/api/backups');
+    const res = await apiFetch('/api/backups');
     return await res.json();
   },
   async openBackupsFolder() {
-    const res = await fetch('/api/backups/open-folder', { method: 'POST' });
+    const res = await apiFetch('/api/backups/open-folder', { method: 'POST' });
     return await res.json();
   },
   async cancelTask() {
-    const res = await fetch('/api/tasks/cancel', { method: 'POST' });
+    const res = await apiFetch('/api/tasks/cancel', { method: 'POST' });
     return await res.json();
   },
   async getSettings() {
-    const res = await fetch('/api/settings');
+    const res = await apiFetch('/api/settings');
     return await res.json();
   },
 };
@@ -225,11 +255,17 @@ function escapeHtml(str) {
 // WebSocket & Live Progress Terminal
 // ============================================================================
 
-function setupWebSocket() {
+async function setupWebSocket() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/ws/events`;
 
   try {
+    let ticket = '';
+    if (cloudMode) {
+      const response = await apiFetch('/api/ws-ticket', { method: 'POST' });
+      if (!response.ok) throw new Error('Не удалось открыть канал событий');
+      ticket = `?ticket=${encodeURIComponent((await response.json()).ticket)}`;
+    }
+    const wsUrl = `${protocol}//${window.location.host}${cloudMode ? '/tgclear' : ''}/ws/events${ticket}`;
     state.ws = new WebSocket(wsUrl);
 
     state.ws.onopen = () => {
@@ -286,7 +322,7 @@ function handleWsEvent(msg) {
       counterBadge.textContent = `0 / ${msg.total}`;
       progressFill.style.width = '0%';
       progressFill.className = 'progress-fill danger';
-      addTerminalLog(`Запуск сессии выхода. Снапшот сохранен в C:\\tg\\backups\\`, 'ok');
+      addTerminalLog('Запуск сессии выхода. Резервная копия создана перед операцией.', 'ok');
     } else if (msg.action === 'rollback') {
       actionTitle.textContent = 'Выборочный откат (Rollback)';
       statusText.textContent = 'Возврат в публичные каналы';
@@ -413,6 +449,23 @@ function addTerminalLog(message, level = 'info') {
 // ============================================================================
 
 document.addEventListener('DOMContentLoaded', async () => {
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-tg-action]');
+    if (!button) return;
+    const id = button.dataset.id;
+    if (button.dataset.tgAction === 'whitelist-add') {
+      const dialog = state.dialogs.find((item) => String(item.id) === id);
+      if (dialog) window.handleAddToWhitelist(dialog.id, dialog.title, dialog.username);
+    } else if (button.dataset.tgAction === 'whitelist-remove') window.handleRemoveFromWhitelist(Number(id));
+    else if (button.dataset.tgAction === 'batch-toggle') window.toggleBatchExpand(id);
+    else if (button.dataset.tgAction === 'rollback-all') window.handleRollbackAll(id);
+    else if (button.dataset.tgAction === 'rollback-selected') window.handleRollbackSelected(id);
+  });
+  if (cloudMode) {
+    document.getElementById('btnOpenExplorer').hidden = true;
+    document.getElementById('cloudGate').hidden = false;
+    await sessionReady;
+  }
   setupTabs();
   setupFilterControls();
   setupActionButtons();
@@ -1026,14 +1079,14 @@ function renderDialogsTable() {
     // Entity type badge
     let typeBadge = '<span class="badge badge-type">Канал</span>';
     if (d.entity_type === 'supergroup') {
-      typeBadge = '<span class="badge badge-type" style="color: #A78BFA; border-color: rgba(167, 139, 250, 0.3);">Супергруппа</span>';
+      typeBadge = '<span class="badge badge-type" style="color: var(--accent-indigo); border-color: var(--accent-indigo-border);">Супергруппа</span>';
     } else if (d.entity_type === 'group') {
-      typeBadge = '<span class="badge badge-type" style="color: #94A3B8;">Группа</span>';
+      typeBadge = '<span class="badge badge-type" style="color: var(--text-secondary);">Группа</span>';
     }
 
     // Username display
-    const usernameHtml = d.username
-      ? `<a href="https://t.me/${d.username}" target="_blank" rel="noopener noreferrer" style="color: var(--accent-indigo); text-decoration: none;">@${d.username}</a>`
+    const usernameHtml = d.username && /^[A-Za-z0-9_]{5,32}$/.test(d.username)
+      ? `<a href="https://t.me/${encodeURIComponent(d.username)}" target="_blank" rel="noopener noreferrer" style="color: var(--accent-indigo); text-decoration: none;">@${escapeHtml(d.username)}</a>`
       : `<span class="text-subtle" style="font-size: 0.8rem;">[Приватный]</span>`;
 
     // Status badges
@@ -1049,10 +1102,10 @@ function renderDialogsTable() {
         statusHtml += '<span class="badge badge-whitelist">Белый список</span> ';
       }
       if (d.is_folder_protected) {
-        statusHtml += '<span class="badge badge-protected" style="border-color: rgba(99, 102, 241, 0.4); color: #818CF8;">Папка защищена</span> ';
+        statusHtml += '<span class="badge badge-protected" style="border-color: var(--accent-indigo-border); color: var(--accent-indigo);">Папка защищена</span> ';
       }
       if (d.is_recent_read_protected) {
-        statusHtml += '<span class="badge badge-protected" style="border-color: rgba(16, 185, 129, 0.4); color: #34D399;">Читали недавно</span> ';
+        statusHtml += '<span class="badge badge-protected" style="border-color: var(--accent-emerald-border); color: var(--accent-emerald);">Читали недавно</span> ';
       }
     } else if (d.is_candidate) {
       const reasonText = d.trigger_reasons && d.trigger_reasons.length > 0 ? d.trigger_reasons.join('; ') : 'Условия фильтра совпали';
@@ -1064,11 +1117,11 @@ function renderDialogsTable() {
     // Whitelist action
     const isWl = state.whitelist.some((w) => w.entity_id === d.id);
     const wlActionBtn = isWl
-      ? `<button class="btn btn-ghost btn-sm" onclick="handleRemoveFromWhitelist(${d.id})" title="Исключить из белого списка" style="color: var(--accent-crimson);">Исключить</button>`
-      : `<button class="btn btn-ghost btn-sm" onclick="handleAddToWhitelist(${d.id}, '${escapeHtml(d.title)}', '${d.username || ''}')" title="Добавить в белый список">В белый список</button>`;
+      ? `<button class="btn btn-ghost btn-sm" data-tg-action="whitelist-remove" data-id="${Number(d.id)}" title="Исключить из белого списка" style="color: var(--accent-crimson);">Исключить</button>`
+      : `<button class="btn btn-ghost btn-sm" data-tg-action="whitelist-add" data-id="${Number(d.id)}" title="Добавить в белый список">В белый список</button>`;
 
     const archiveBadge = d.is_archived
-      ? '<span class="badge" style="background: rgba(148, 163, 184, 0.12); color: #94A3B8; border: 1px solid rgba(148, 163, 184, 0.25);">Архив</span>'
+      ? '<span class="badge" style="background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border-subtle);">Архив</span>'
       : '';
     const folderBadges = (d.folders || [])
       .map((f) => `<span class="badge badge-folder" style="font-size: 0.7rem; padding: 1px 6px;">${escapeHtml(f)}</span>`)
@@ -1218,7 +1271,7 @@ function renderHistory() {
           }
 
           const usernameDisplay = s.username
-            ? `@${s.username}`
+            ? `@${escapeHtml(s.username)}`
             : '<span class="text-danger" style="font-size: 0.78rem;">Приватный (без @username)</span>';
 
           const disableCheckbox = isPrivate || s.restore_status === 'restored';
@@ -1245,10 +1298,10 @@ function renderHistory() {
             <div class="flex items-center justify-between" style="margin-bottom: 12px;">
               <span style="font-size: 0.85rem; font-weight: 600;">Список сущностей сессии (${snapshots.length})</span>
               <div class="flex items-center gap-2">
-                <button class="btn btn-secondary btn-sm" onclick="handleRollbackSelected('${batch.id}')">
+                <button class="btn btn-secondary btn-sm" data-tg-action="rollback-selected" data-id="${escapeHtml(batch.id)}">
                   Восстановить выбранные (${selectedSnapshots.size})
                 </button>
-                <button class="btn btn-primary btn-sm" onclick="handleRollbackAll('${batch.id}')">
+                <button class="btn btn-primary btn-sm" data-tg-action="rollback-all" data-id="${escapeHtml(batch.id)}">
                   Восстановить всё (публичные)
                 </button>
               </div>
@@ -1292,7 +1345,7 @@ function renderHistory() {
           </div>
 
           <div class="flex items-center gap-2">
-            <button class="btn btn-secondary btn-sm" onclick="toggleBatchExpand('${batch.id}')">
+            <button class="btn btn-secondary btn-sm" data-tg-action="batch-toggle" data-id="${escapeHtml(batch.id)}">
               ${isExpanded ? 'Скрыть список' : `Показать каналы (${snapshots.length})`}
             </button>
           </div>
@@ -1384,7 +1437,7 @@ function renderWhitelist() {
 
   tbody.innerHTML = state.whitelist.map((w) => {
     const dateFormatted = new Date(w.added_at).toLocaleString('ru-RU');
-    const usernameHtml = w.username ? `@${w.username}` : '<span class="text-subtle">-</span>';
+    const usernameHtml = w.username ? `@${escapeHtml(w.username)}` : '<span class="text-subtle">-</span>';
 
     return `
       <tr>
@@ -1393,7 +1446,7 @@ function renderWhitelist() {
         <td>${usernameHtml}</td>
         <td class="text-subtle text-mono" style="font-size: 0.8rem;">${dateFormatted}</td>
         <td style="text-align: right;">
-          <button class="btn btn-danger-outline btn-sm" onclick="handleRemoveFromWhitelist(${w.entity_id})">
+          <button class="btn btn-danger-outline btn-sm" data-tg-action="whitelist-remove" data-id="${Number(w.entity_id)}">
             Удалить из списка
           </button>
         </td>
@@ -1422,7 +1475,7 @@ function renderBackups() {
     tbody.innerHTML = `
       <tr>
         <td colspan="6" style="text-align: center; padding: 40px; color: var(--text-muted);">
-          В папке C:\\tg\\backups пока нет резервных копий. Они создаются перед очисткой.
+          Резервных копий пока нет. Они создаются перед очисткой.
         </td>
       </tr>
     `;
@@ -1441,14 +1494,27 @@ function renderBackups() {
         <td class="text-subtle text-mono" style="font-size: 0.8rem;">${dateFormatted}</td>
         <td class="text-subtle text-mono">${escapeHtml(b.batch_id || '-')}</td>
         <td style="text-align: right;">
-          <a href="/api/backups/download/${encodeURIComponent(b.filename)}" class="btn btn-secondary btn-sm" download>
+          <button type="button" class="btn btn-secondary btn-sm backup-download" data-file="${escapeHtml(b.filename)}">
             <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Скачать
-          </a>
+          </button>
         </td>
       </tr>
     `;
   }).join('');
+  tbody.querySelectorAll('.backup-download').forEach((button) => button.addEventListener('click', async () => {
+    try {
+      const filename = button.dataset.file;
+      const response = await apiFetch(`/api/backups/download/${encodeURIComponent(filename)}`);
+      if (!response.ok) throw new Error('Не удалось скачать резервную копию');
+      const objectUrl = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = filename;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+    } catch (error) { showToast(error.message, 'error'); }
+  }));
 }
 
 // ============================================================================
@@ -1494,7 +1560,7 @@ function openLeaveConfirmationModal() {
 
   tbody.innerHTML = selectedList.map((d) => {
     const isPriv = d.is_private || !d.username;
-    const userDisplay = d.username ? `@${d.username}` : '<span class="text-danger">[Приватный]</span>';
+    const userDisplay = d.username ? `@${escapeHtml(d.username)}` : '<span class="text-danger">[Приватный]</span>';
     const reasons = d.trigger_reasons && d.trigger_reasons.length > 0 ? d.trigger_reasons.join(', ') : 'Кандидат';
 
     return `

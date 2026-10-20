@@ -1,0 +1,25 @@
+[Unit]
+Description=TGclear isolated Telegram service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=timoha
+Group=timoha
+WorkingDirectory=/opt/tgclear
+EnvironmentFile=/opt/tgclear/.env
+Environment=TG_REMOTE_MODE=1
+Environment=PYTHONPATH=/opt/tgclear/src
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/tgclear/.venv/bin/uvicorn tg_cleaner.api.app:app --host 127.0.0.1 --port 8742 --workers 1 --no-access-log
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/tgclear/data /opt/tgclear/backups
+
+[Install]
+WantedBy=multi-user.target

@@ -28,8 +28,8 @@ from tg_cleaner.storage.storage import StorageManager
 
 logger = logging.getLogger("tg_cleaner.telegram_service")
 
-DEFAULT_SESSION_PATH = r"C:\tg\data\telegram.session"
-DEFAULT_BACKUP_DIR = r"C:\tg\backups"
+DEFAULT_SESSION_PATH = r"C:\tg\data\telegram.session" if os.name == "nt" else str(Path(__file__).resolve().parents[3] / "data" / "telegram.session")
+DEFAULT_BACKUP_DIR = r"C:\tg\backups" if os.name == "nt" else str(Path(__file__).resolve().parents[3] / "backups")
 
 
 async def _emit_callback(

@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="370" viewBox="0 0 1200 370" role="img" aria-labelledby="title desc">
+  <title id="title">Четыре шага подключения Telegram API к TGclear</title>
+  <desc id="desc">Схема: войти на my.telegram.org, открыть API development tools, создать приложение, перенести api_id и api_hash в TGclear.</desc>
+  <rect width="1200" height="370" fill="#11100f"/>
+  <text x="36" y="39" fill="#c59a71" font-size="13" font-family="Arial,sans-serif" font-weight="700" letter-spacing="3">VELLIUM / TGCLEAR — ПОДКЛЮЧЕНИЕ</text>
+  <g font-family="Arial,sans-serif">
+    <g transform="translate(36 68)">
+      <rect width="270" height="266" rx="12" fill="#221d19" stroke="#65503f"/>
+      <text x="22" y="37" fill="#c59a71" font-size="15" font-weight="700">01</text>
+      <rect x="22" y="58" width="226" height="122" rx="7" fill="#302720" stroke="#604a39"/>
+      <circle cx="39" cy="73" r="3" fill="#c59a71"/><circle cx="50" cy="73" r="3" fill="#c59a71"/><circle cx="61" cy="73" r="3" fill="#c59a71"/>
+      <rect x="35" y="86" width="200" height="20" rx="4" fill="#1c1815" stroke="#604a39"/>
+      <text x="45" y="100" fill="#d7bfaa" font-size="11">my.telegram.org</text>
+      <text x="35" y="132" fill="#e9ddd0" font-size="17" font-weight="700">Вход в Telegram</text>
+      <rect x="35" y="144" width="200" height="22" rx="4" fill="#1c1815" stroke="#604a39"/>
+      <text x="46" y="159" fill="#aa9a8a" font-size="10">Номер телефона</text>
+      <text x="22" y="219" fill="#e9ddd0" font-size="16" font-weight="700">Откройте портал</text>
+      <text x="22" y="243" fill="#b8a797" font-size="12">Введите номер и код из Telegram</text>
+    </g>
+    <g transform="translate(326 68)">
+      <rect width="270" height="266" rx="12" fill="#221d19" stroke="#65503f"/>
+      <text x="22" y="37" fill="#c59a71" font-size="15" font-weight="700">02</text>
+      <rect x="22" y="58" width="226" height="122" rx="7" fill="#302720" stroke="#604a39"/>
+      <text x="37" y="91" fill="#e9ddd0" font-size="17" font-weight="700">API development</text>
+      <text x="37" y="114" fill="#e9ddd0" font-size="17" font-weight="700">tools</text>
+      <rect x="37" y="132" width="164" height="25" rx="4" fill="#c59a71"/>
+      <text x="49" y="149" fill="#19130f" font-size="11" font-weight="700">Создать приложение →</text>
+      <text x="22" y="219" fill="#e9ddd0" font-size="16" font-weight="700">Выберите раздел API</text>
+      <text x="22" y="243" fill="#b8a797" font-size="12">Создайте приложение для себя</text>
+    </g>
+    <g transform="translate(616 68)">
+      <rect width="270" height="266" rx="12" fill="#221d19" stroke="#65503f"/>
+      <text x="22" y="37" fill="#c59a71" font-size="15" font-weight="700">03</text>
+      <rect x="22" y="58" width="226" height="122" rx="7" fill="#302720" stroke="#604a39"/>
+      <text x="37" y="86" fill="#e9ddd0" font-size="15" font-weight="700">App configuration</text>
+      <rect x="37" y="101" width="195" height="24" rx="3" fill="#1c1815" stroke="#604a39"/>
+      <text x="47" y="117" fill="#c7ad98" font-size="10">api_id: 12345678</text>
+      <rect x="37" y="135" width="195" height="24" rx="3" fill="#1c1815" stroke="#604a39"/>
+      <text x="47" y="151" fill="#c7ad98" font-size="10">api_hash: ••••••••</text>
+      <text x="22" y="219" fill="#e9ddd0" font-size="16" font-weight="700">Скопируйте ключи</text>
+      <text x="22" y="243" fill="#b8a797" font-size="12">Не публикуйте api_hash</text>
+    </g>
+    <g transform="translate(906 68)">
+      <rect width="270" height="266" rx="12" fill="#221d19" stroke="#65503f"/>
+      <text x="22" y="37" fill="#c59a71" font-size="15" font-weight="700">04</text>
+      <rect x="22" y="58" width="226" height="122" rx="7" fill="#302720" stroke="#604a39"/>
+      <text x="37" y="92" fill="#c59a71" font-size="15" font-weight="700">V · TGclear</text>
+      <text x="37" y="119" fill="#e9ddd0" font-size="16">Вход в аккаунт</text>
+      <rect x="37" y="137" width="195" height="23" rx="3" fill="#1c1815" stroke="#604a39"/>
+      <text x="47" y="153" fill="#c7ad98" font-size="10">Номер · код · 2FA</text>
+      <text x="22" y="219" fill="#e9ddd0" font-size="16" font-weight="700">Войдите в TGclear</text>
+      <text x="22" y="243" fill="#b8a797" font-size="12">Проверьте список до выхода</text>
+    </g>
+  </g>
+</svg>

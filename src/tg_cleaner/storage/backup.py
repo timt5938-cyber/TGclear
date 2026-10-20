@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-DEFAULT_BACKUP_DIR = r"C:\tg\backups"
+DEFAULT_BACKUP_DIR = r"C:\tg\backups" if os.name == "nt" else str(Path(__file__).resolve().parents[3] / "backups")
 
 CSV_HEADERS = [
     "ID",

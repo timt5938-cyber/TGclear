@@ -16,7 +16,7 @@ import aiosqlite
 
 from tg_cleaner.storage.models import SnapshotRecord
 
-DEFAULT_DB_PATH = r"C:\tg\data\tg_cleaner.db"
+DEFAULT_DB_PATH = r"C:\tg\data\tg_cleaner.db" if os.name == "nt" else str(Path(__file__).resolve().parents[3] / "data" / "tg_cleaner.db")
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;

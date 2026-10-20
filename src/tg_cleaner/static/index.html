@@ -4,29 +4,26 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="design-system" content="ui-ux-pro-max">
-  <title>Telegram Cleaner</title>
+  <title>TGclear — VELLIUM</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="static/styles.css">
 </head>
 <body>
+  <div id="cloudGate" class="cloud-gate" hidden><div><strong>Подключаем защищённую сессию…</strong><p>Откройте TGclear через <a href="/tgclear">страницу проекта VELLIUM</a>.</p></div></div>
 
   <!-- Top Application Header -->
   <header class="app-header flex items-center justify-between">
     <div class="brand">
       <div class="brand-icon-box">
-        <svg class="icon icon-lg" viewBox="0 0 24 24">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-          <path d="m9 12 2 2 4-4"/>
-        </svg>
+        <svg class="icon icon-lg" viewBox="0 0 42 42" aria-hidden="true"><path d="M5 6.5h8L21 29l8-22.5h8L24.7 36h-7.4L5 6.5Z" fill="currentColor" stroke="none"/></svg>
       </div>
       <div>
         <div class="flex items-center gap-2">
-          <span class="brand-title">Telegram Cleaner</span>
-          <span class="brand-badge">v1.0</span>
+          <span class="brand-title">VELLIUM<span class="brand-period">.</span> <span class="brand-product">/ TGclear</span></span>
         </div>
-        <span class="text-subtle" style="font-size: 0.75rem;">Безопасная очистка и аудит неактивных каналов</span>
+        <span class="text-subtle" style="font-size: 0.75rem;">Порядок в каналах Telegram — под вашим контролем</span>
       </div>
     </div>
 
@@ -163,7 +160,7 @@
         </div>
 
         <!-- Telegram Folders Protection Bar -->
-        <div id="foldersSection" style="margin-top: 14px; padding: 12px 16px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);">
+        <div id="foldersSection" style="margin-top: 14px; padding: 12px 16px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);">
           <div class="flex items-center justify-between" style="margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
             <div class="flex items-center gap-2">
               <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: var(--accent-indigo);"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
@@ -415,7 +412,7 @@
       <div class="card" style="margin-bottom: 20px;">
         <div class="flex items-center justify-between">
           <div>
-            <h3>Файлы резервных копий (C:\tg\backups)</h3>
+            <h3>Файлы резервных копий</h3>
             <p class="text-subtle" style="font-size: 0.85rem;">
               JSON и CSV дампы создаются перед каждой операцией выхода для полной прозрачности и сохранности данных.
             </p>
@@ -537,7 +534,7 @@
             </div>
           </div>
           <p class="text-muted" style="font-size: 0.85rem;">
-            Сессия MTProto активна и сохранена в <code class="text-mono">C:\tg\data\telegram.session</code>.
+            Сессия MTProto активна и сохранена в вашем хранилище TGclear.
           </p>
         </div>
       </div>
@@ -585,7 +582,7 @@
 
         <div class="flex items-center gap-2 text-subtle" style="font-size: 0.8rem;">
           <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-          <span>Перед выходом полный снапшот списка будет автоматически экспортирован в <strong>C:\tg\backups</strong> (JSON и CSV).</span>
+          <span>Перед выходом снимок списка автоматически сохранится в TGclear в форматах JSON и CSV.</span>
         </div>
 
         <!-- Preview List of Selected -->
@@ -659,6 +656,6 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- Application Logic -->
-  <script src="/static/app.js"></script>
+  <script src="static/app.js"></script>
 </body>
 </html>

@@ -52,16 +52,16 @@ class TestApiEndpoints(unittest.TestCase):
         """Test root URL and static assets (HTML, CSS, JS) serve successfully."""
         res_index = self.client.get("/")
         self.assertEqual(res_index.status_code, 200)
-        self.assertIn("Telegram Cleaner", res_index.text)
+        self.assertIn("TGclear — VELLIUM", res_index.text)
         self.assertIn("ui-ux-pro-max", res_index.text or "")
 
         res_css = self.client.get("/static/styles.css")
         self.assertEqual(res_css.status_code, 200)
-        self.assertIn("--bg-app: #090D16;", res_css.text)
+        self.assertIn("--bg-app: #11100f;", res_css.text)
 
         res_js = self.client.get("/static/app.js")
         self.assertEqual(res_js.status_code, 200)
-        self.assertIn("Telegram Cleaner", res_js.text)
+        self.assertIn("VELLIUM-hosted", res_js.text)
 
     def test_02_auth_workflow_mock_mode(self):
         """Test full authentication wizard endpoints in mock mode."""

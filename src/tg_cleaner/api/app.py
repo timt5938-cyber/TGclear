@@ -6,13 +6,19 @@ whitelist management, backup inspection/export, and application settings.
 """
 
 import asyncio
+from contextvars import ContextVar
 import logging
 import os
+import secrets
 import subprocess
 import sys
+import time
+from uuid import UUID
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
+
+import httpx
 
 from fastapi import (
     BackgroundTasks,
@@ -23,7 +29,6 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -97,29 +102,11 @@ class ConnectionManager:
                     ch.remove(dead)
 
 
-ws_manager = ConnectionManager()
-
 # -----------------------------------------------------------------------------
 # Application State
 # -----------------------------------------------------------------------------
 
-storage = StorageManager(db_path=str(DATA_DIR / "tg_cleaner.db"))
-
-# Check mock mode setting or environment variable
-is_mock_mode = (
-    os.environ.get("TG_MOCK_MODE", "").strip().lower() in ("1", "true", "yes")
-    or bool(storage.get_settings().get("mock_mode", False))
-)
-
-telegram_service = TelegramService(
-    session_path=str(DATA_DIR / "telegram.session"),
-    storage=storage,
-    backup_dir=str(BACKUPS_DIR),
-    mock_mode=is_mock_mode,
-)
-
-# In-memory cache for current dialog scan results
-cached_dialogs: List[ChatEntity] = []
+REMOTE_MODE = os.environ.get("TG_REMOTE_MODE", "").lower() in ("1", "true")
 
 # Background task state tracker
 class TaskTracker:
@@ -147,7 +134,124 @@ class TaskTracker:
         self.async_task = None
 
 
-task_tracker = TaskTracker()
+class TenantState:
+    def __init__(self, directory: Path, backup_dir: Path, mock_mode: bool = False) -> None:
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.storage = StorageManager(db_path=str(directory / "tg_cleaner.db"))
+        self.telegram_service = TelegramService(
+            session_path=str(directory / "telegram.session"),
+            storage=self.storage, backup_dir=str(backup_dir), mock_mode=mock_mode,
+        )
+        self.cached_dialogs: List[ChatEntity] = []
+        self.task_tracker = TaskTracker()
+        self.ws_manager = ConnectionManager()
+        self.login_attempts: Dict[str, List[float]] = {}
+
+
+_local_storage = StorageManager(db_path=str(DATA_DIR / "tg_cleaner.db"))
+_local_mock = os.environ.get("TG_MOCK_MODE", "").lower() in ("1", "true", "yes") or bool(_local_storage.get_settings().get("mock_mode", False))
+_local_state = TenantState(DATA_DIR, BACKUPS_DIR, mock_mode=_local_mock)
+_tenants: Dict[str, TenantState] = {}
+_tenant_context: ContextVar[Optional[TenantState]] = ContextVar("tg_tenant", default=None)
+
+
+def current_state() -> TenantState:
+    state = _tenant_context.get()
+    if REMOTE_MODE and state is None:
+        raise RuntimeError("Missing authenticated tenant")
+    return state or _local_state
+
+
+def tenant_for(user_id: str) -> TenantState:
+    user_id = str(UUID(user_id))
+    if user_id not in _tenants:
+        _tenants[user_id] = TenantState(DATA_DIR / "users" / user_id, BACKUPS_DIR / "users" / user_id)
+    return _tenants[user_id]
+
+
+def check_login_limit(action: str, limit: int) -> None:
+    if not REMOTE_MODE:
+        return
+    now = time.monotonic()
+    attempts = [t for t in current_state().login_attempts.get(action, []) if now - t < 3600]
+    if len(attempts) >= limit:
+        raise HTTPException(status_code=429, detail="Слишком много попыток. Повторите позже.")
+    attempts.append(now)
+    current_state().login_attempts[action] = attempts
+
+
+class TenantProxy:
+    def __init__(self, attribute: str) -> None:
+        object.__setattr__(self, "attribute", attribute)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(getattr(current_state(), self.attribute), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(getattr(current_state(), self.attribute), name, value)
+
+
+storage = TenantProxy("storage")
+telegram_service = TenantProxy("telegram_service")
+task_tracker = TenantProxy("task_tracker")
+ws_manager = TenantProxy("ws_manager")
+
+
+async def verify_user(token: str) -> str:
+    url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    key = os.environ.get("SUPABASE_PUBLISHABLE_KEY", "")
+    if not url.startswith("https://") or not key or not token or len(token) > 4096:
+        raise ValueError("Authentication unavailable")
+    async with httpx.AsyncClient(timeout=8) as client:
+        response = await client.get(f"{url}/auth/v1/user", headers={"apikey": key, "Authorization": f"Bearer {token}"})
+    if response.status_code != 200:
+        raise ValueError("Invalid session")
+    return str(UUID(response.json()["id"]))
+
+
+_ws_tickets: Dict[str, tuple[str, float]] = {}
+
+
+class TenantAuthMiddleware:
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
+        if not REMOTE_MODE or scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        path = scope.get("path", "")
+        if not path.startswith(("/api/", "/ws/")):
+            await self.app(scope, receive, send)
+            return
+        try:
+            if scope["type"] == "websocket":
+                from urllib.parse import parse_qs
+                ticket = parse_qs(scope.get("query_string", b"").decode()).get("ticket", [""])[0]
+                entry = _ws_tickets.pop(ticket, None)
+                if not entry or entry[1] < time.monotonic():
+                    raise ValueError("Invalid WebSocket ticket")
+                user_id = entry[0]
+            else:
+                headers = dict(scope.get("headers", []))
+                auth = headers.get(b"authorization", b"").decode()
+                if not auth.startswith("Bearer "):
+                    raise ValueError("Missing session")
+                user_id = await verify_user(auth[7:].strip())
+        except (ValueError, KeyError, httpx.HTTPError):
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1008})
+            else:
+                body = b'{"detail":"Sign in to VELLIUM first"}'
+                await send({"type": "http.response.start", "status": 401, "headers": [(b"content-type", b"application/json"), (b"cache-control", b"no-store")]})
+                await send({"type": "http.response.body", "body": body})
+            return
+        token = _tenant_context.set(tenant_for(user_id))
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _tenant_context.reset(token)
 
 # -----------------------------------------------------------------------------
 # FastAPI App Initialization
@@ -159,13 +263,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(TenantAuthMiddleware)
 
 # -----------------------------------------------------------------------------
 # Request & Response Schemas
@@ -229,6 +327,7 @@ async def get_auth_status() -> Dict[str, Any]:
 @app.post("/api/auth/send-code")
 async def send_code(req: SendCodeRequest) -> Dict[str, Any]:
     """Send SMS/Telegram verification code to user phone and save credentials."""
+    check_login_limit("send_code", 5)
     try:
         res = await telegram_service.send_code(
             phone=req.phone.strip(),
@@ -247,6 +346,7 @@ async def send_code(req: SendCodeRequest) -> Dict[str, Any]:
 @app.post("/api/auth/verify-code")
 async def verify_code(req: VerifyCodeRequest) -> Dict[str, Any]:
     """Submit one-time code to complete Telegram sign-in."""
+    check_login_limit("verify_code", 10)
     try:
         res = await telegram_service.sign_in(
             phone=req.phone.strip(),
@@ -264,6 +364,7 @@ async def verify_code(req: VerifyCodeRequest) -> Dict[str, Any]:
 @app.post("/api/auth/verify-password")
 async def verify_password(req: VerifyPasswordRequest) -> Dict[str, Any]:
     """Submit 2FA cloud password to complete Telegram sign-in."""
+    check_login_limit("verify_password", 10)
     try:
         res = await telegram_service.sign_in_password(password=req.password)
         return res
@@ -278,10 +379,11 @@ async def verify_password(req: VerifyPasswordRequest) -> Dict[str, Any]:
 @app.post("/api/auth/logout")
 async def logout() -> Dict[str, Any]:
     """Log out of Telegram and purge MTProto session."""
-    global cached_dialogs
     try:
         res = await telegram_service.logout()
-        cached_dialogs.clear()
+        if REMOTE_MODE:
+            storage.save_settings({"api_id": None, "api_hash": None, "phone": None, "phone_code_hash": None})
+        current_state().cached_dialogs.clear()
         return res
     except Exception as exc:
         logger.error("Error during logout: %s", exc)
@@ -309,12 +411,11 @@ async def get_telegram_folders() -> List[Dict[str, Any]]:
 @app.get("/api/dialogs")
 async def get_dialogs() -> List[Dict[str, Any]]:
     """Return currently cached discovered dialog entities."""
-    return [d.model_dump() for d in cached_dialogs]
+    return [d.model_dump() for d in current_state().cached_dialogs]
 
 
 async def _run_scan_task(config: Optional[FilterConfig]) -> None:
     """Background runner for scanning dialogs."""
-    global cached_dialogs
     task_tracker.start("scan")
     await ws_manager.broadcast("scan", {"type": "start", "action": "scan"})
 
@@ -329,7 +430,7 @@ async def _run_scan_task(config: Optional[FilterConfig]) -> None:
             progress_callback=_progress_cb,
             filter_config=config,
         )
-        cached_dialogs = dialogs
+        current_state().cached_dialogs = dialogs
         task_tracker.finish("completed", {"total_found": len(dialogs)})
         await ws_manager.broadcast(
             "scan",
@@ -376,10 +477,9 @@ async def start_scan(
 @app.post("/api/evaluate")
 async def evaluate_current_dialogs(config: FilterConfig) -> Dict[str, Any]:
     """Re-evaluate existing cached dialogs against updated FilterConfig and Whitelist."""
-    global cached_dialogs
     whitelist_ids = storage.get_whitelist_ids()
-    evaluated = evaluate_candidates(cached_dialogs, config, whitelist_ids)
-    cached_dialogs = evaluated
+    evaluated = evaluate_candidates(current_state().cached_dialogs, config, whitelist_ids)
+    current_state().cached_dialogs = evaluated
 
     # Save updated filter preferences
     storage.save_settings({"filter_config": config.model_dump()})
@@ -402,7 +502,6 @@ async def evaluate_current_dialogs(config: FilterConfig) -> Dict[str, Any]:
 
 async def _run_leave_task(entity_ids: List[int], batch_id: str) -> None:
     """Background runner for physical departure from candidate entities."""
-    global cached_dialogs
     task_tracker.start("leave")
     await ws_manager.broadcast(
         "leave",
@@ -424,7 +523,7 @@ async def _run_leave_task(entity_ids: List[int], batch_id: str) -> None:
 
         # Remove departed entities from memory cache
         departed_set = set(entity_ids)
-        cached_dialogs = [d for d in cached_dialogs if d.id not in departed_set]
+        current_state().cached_dialogs = [d for d in current_state().cached_dialogs if d.id not in departed_set]
 
         task_tracker.finish("completed", result)
         await ws_manager.broadcast(
@@ -449,6 +548,10 @@ async def leave_entities(
     """Start physical departure from specified candidate entities."""
     if not req.entity_ids:
         raise HTTPException(status_code=400, detail="No entity IDs provided")
+    if REMOTE_MODE:
+        allowed = {d.id for d in current_state().cached_dialogs if d.is_candidate and not d.is_protected}
+        if len(req.entity_ids) > 100 or any(entity_id not in allowed for entity_id in req.entity_ids):
+            raise HTTPException(status_code=400, detail="Only scanned, unprotected candidates can be left")
 
     if task_tracker.status == "running":
         return {
@@ -562,7 +665,6 @@ async def get_whitelist() -> List[Dict[str, Any]]:
 @app.post("/api/whitelist")
 async def add_to_whitelist(req: WhitelistAddRequest) -> Dict[str, Any]:
     """Add entity to whitelist and re-evaluate cached dialogs."""
-    global cached_dialogs
     storage.add_to_whitelist(
         entity_id=req.entity_id,
         title=req.title,
@@ -570,12 +672,12 @@ async def add_to_whitelist(req: WhitelistAddRequest) -> Dict[str, Any]:
     )
 
     # Re-evaluate cached dialogs so UI reflects protection immediately
-    if cached_dialogs:
+    if current_state().cached_dialogs:
         settings = storage.get_settings()
         filter_cfg_dict = settings.get("filter_config")
         cfg = FilterConfig(**filter_cfg_dict) if filter_cfg_dict else FilterConfig()
         whitelist_ids = storage.get_whitelist_ids()
-        cached_dialogs = evaluate_candidates(cached_dialogs, cfg, whitelist_ids)
+        current_state().cached_dialogs = evaluate_candidates(current_state().cached_dialogs, cfg, whitelist_ids)
 
     return {"status": "ok", "whitelist": storage.get_whitelist()}
 
@@ -583,16 +685,15 @@ async def add_to_whitelist(req: WhitelistAddRequest) -> Dict[str, Any]:
 @app.delete("/api/whitelist/{entity_id}")
 async def remove_from_whitelist(entity_id: int) -> Dict[str, Any]:
     """Remove entity from whitelist and re-evaluate cached dialogs."""
-    global cached_dialogs
     storage.remove_from_whitelist(entity_id)
 
     # Re-evaluate cached dialogs
-    if cached_dialogs:
+    if current_state().cached_dialogs:
         settings = storage.get_settings()
         filter_cfg_dict = settings.get("filter_config")
         cfg = FilterConfig(**filter_cfg_dict) if filter_cfg_dict else FilterConfig()
         whitelist_ids = storage.get_whitelist_ids()
-        cached_dialogs = evaluate_candidates(cached_dialogs, cfg, whitelist_ids)
+        current_state().cached_dialogs = evaluate_candidates(current_state().cached_dialogs, cfg, whitelist_ids)
 
     return {"status": "ok", "whitelist": storage.get_whitelist()}
 
@@ -610,6 +711,8 @@ async def get_backups() -> List[Dict[str, Any]]:
 @app.post("/api/backups/open-folder")
 async def open_backups_folder() -> Dict[str, Any]:
     """Open backup directory in Windows File Explorer."""
+    if REMOTE_MODE:
+        raise HTTPException(status_code=404, detail="Use backup downloads in browser")
     backup_path = os.path.abspath(telegram_service.backup_dir)
     os.makedirs(backup_path, exist_ok=True)
 
@@ -633,6 +736,8 @@ async def open_backups_folder() -> Dict[str, Any]:
 async def download_backup_file(filename: str):
     """Serve backup JSON or CSV file for download."""
     clean_name = os.path.basename(filename)
+    if clean_name != filename or not clean_name.endswith((".json", ".csv")):
+        raise HTTPException(status_code=400, detail="Invalid backup filename")
     target = Path(telegram_service.backup_dir) / clean_name
 
     if not target.exists() or not target.is_file():
@@ -654,6 +759,8 @@ async def download_backup_file(filename: str):
 async def get_settings() -> Dict[str, Any]:
     """Retrieve application settings."""
     settings = storage.get_settings()
+    if REMOTE_MODE:
+        settings = {key: value for key, value in settings.items() if key not in {"api_id", "api_hash", "phone_code_hash", "phone"}}
     settings["mock_mode"] = telegram_service.mock_mode
     return settings
 
@@ -661,13 +768,29 @@ async def get_settings() -> Dict[str, Any]:
 @app.post("/api/settings")
 async def save_settings(req: SettingsUpdateRequest) -> Dict[str, Any]:
     """Save application settings."""
+    if REMOTE_MODE and set(req.settings) - {"filter_config"}:
+        raise HTTPException(status_code=400, detail="These settings cannot be changed online")
     storage.save_settings(req.settings)
 
     # Allow dynamic toggling of mock_mode if present in settings
     if "mock_mode" in req.settings:
         telegram_service.mock_mode = bool(req.settings["mock_mode"])
 
-    return {"status": "ok", "settings": storage.get_settings()}
+    return {"status": "ok", "settings": (await get_settings()) if REMOTE_MODE else storage.get_settings()}
+
+
+@app.post("/api/ws-ticket")
+async def create_ws_ticket() -> Dict[str, str]:
+    """Issue a short-lived, single-use WebSocket ticket without putting JWTs in URLs."""
+    ticket = secrets.token_urlsafe(32)
+    for stale, (_, expires) in list(_ws_tickets.items()):
+        if expires < time.monotonic():
+            _ws_tickets.pop(stale, None)
+    user_id = next((uid for uid, state in _tenants.items() if state is current_state()), None)
+    if REMOTE_MODE and user_id is None:
+        raise HTTPException(status_code=401, detail="Missing session")
+    _ws_tickets[ticket] = (user_id or "local", time.monotonic() + 60)
+    return {"ticket": ticket}
 
 
 @app.get("/api/tasks/status")

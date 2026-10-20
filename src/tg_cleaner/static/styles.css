@@ -6,43 +6,43 @@
    ========================================================================== */
 
 :root {
-  --bg-app: #090D16;
-  --bg-card: #0F172A;
-  --bg-card-hover: #131D35;
-  --bg-surface: #111827;
-  --bg-input: #0B1120;
-  --bg-overlay: rgba(9, 13, 22, 0.85);
+  --bg-app: #11100f;
+  --bg-card: #211c18;
+  --bg-card-hover: #2d251f;
+  --bg-surface: #29231e;
+  --bg-input: #171411;
+  --bg-overlay: rgba(17, 16, 15, 0.88);
 
-  --border-subtle: #1F2937;
-  --border-focus: #2E3A52;
-  --border-strong: #374151;
+  --border-subtle: #483b31;
+  --border-focus: #c59a71;
+  --border-strong: #6d5644;
 
-  --text-main: #F8FAFC;
-  --text-secondary: #94A3B8;
-  --text-muted: #64748B;
-  --text-disabled: #475569;
+  --text-main: #e9ddd0;
+  --text-secondary: #c2b2a2;
+  --text-muted: #a79a8c;
+  --text-disabled: #786e64;
 
-  --accent-emerald: #10B981;
-  --accent-emerald-bg: rgba(16, 185, 129, 0.12);
-  --accent-emerald-border: rgba(16, 185, 129, 0.3);
+  --accent-emerald: #9daa87;
+  --accent-emerald-bg: rgba(157, 170, 135, 0.12);
+  --accent-emerald-border: rgba(157, 170, 135, 0.3);
 
   --accent-crimson: #EF4444;
   --accent-crimson-hover: #DC2626;
   --accent-crimson-bg: rgba(239, 68, 68, 0.12);
   --accent-crimson-border: rgba(239, 68, 68, 0.3);
 
-  --accent-indigo: #6366F1;
-  --accent-indigo-hover: #4F46E5;
-  --accent-indigo-bg: rgba(99, 102, 241, 0.12);
-  --accent-indigo-border: rgba(99, 102, 241, 0.3);
+  --accent-indigo: #c59a71;
+  --accent-indigo-hover: #dfb18a;
+  --accent-indigo-bg: rgba(197, 154, 113, 0.12);
+  --accent-indigo-border: rgba(197, 154, 113, 0.3);
 
-  --accent-amber: #F59E0B;
-  --accent-amber-bg: rgba(245, 158, 11, 0.12);
+  --accent-amber: #d4aa80;
+  --accent-amber-bg: rgba(212, 170, 128, 0.12);
 
   --accent-slate: #64748B;
   --accent-slate-bg: rgba(100, 116, 139, 0.15);
 
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  --font-sans: 'Manrope', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 
   --radius-sm: 6px;
@@ -301,7 +301,8 @@ h1, h2, h3, h4 {
 
 .btn-primary {
   background-color: var(--accent-indigo);
-  color: #FFFFFF;
+  color: #19130f;
+  font-weight: 800;
 }
 .btn-primary:hover {
   background-color: var(--accent-indigo-hover);
@@ -1019,3 +1020,32 @@ input[type="checkbox"]:checked::before {
     gap: 12px;
   }
 }
+
+.brand-period { color: var(--accent-indigo); }
+.brand-product { color: var(--text-secondary); font-weight: 500; }
+.cloud-gate { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: rgba(17,16,15,.94); padding: 24px; text-align: center; }
+.cloud-gate[hidden] { display: none; }
+.cloud-gate strong { font-size: clamp(22px,5vw,32px); }
+.cloud-gate p { color: var(--text-secondary); margin-top: 12px; }
+.cloud-gate a { color: var(--accent-indigo); }
+:focus-visible { outline: 2px solid var(--accent-indigo); outline-offset: 3px; }
+@media(max-width:700px) {
+  .app-header { position: relative; padding: 18px 16px; }
+  .app-header > .flex:last-child { flex-wrap: wrap; }
+  .tabs-nav { width: 100%; overflow-x: auto; padding-bottom: 7px; }
+  .tab-btn, .btn, .auth-badge { min-height: 44px; }
+  .main-container { padding: 20px 14px; }
+  .summary-metrics { grid-template-columns: 1fr 1fr; }
+  .card { padding: 18px; }
+  .filter-section > .flex:first-child { display: block; }
+  .filter-section > .flex:first-child > .flex { margin-bottom: 8px; }
+  .filter-section > .flex:first-child h3 { font-size: 17px; line-height: 1.35; }
+  .filter-section > .flex:first-child > .text-subtle { display: block; padding-left: 32px; }
+  .table-wrap { overflow-x: auto; }
+  .modal-dialog { width: min(100%, 520px); max-height: calc(100dvh - 32px); overflow-y: auto; }
+}
+@media(max-width:430px) {
+  .summary-metrics { grid-template-columns: 1fr; }
+  .brand-title { font-size: 1rem; }
+}
+@media(prefers-reduced-motion:reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
